@@ -1,0 +1,147 @@
+import random
+
+import numpy as np
+import pytest
+import stim
+from sympy.logic.boolalg import Boolean, false, true
+
+from stimsymb.circuit import SINGLE_QUBIT_CLIFFORD_GATES, execute
+from stimsymb.tableau import SymbolicTableau
+
+
+GateSet = tuple[str, ...]
+
+
+def _random_initial_state(num_qubits: int, rng: random.Random) -> stim.Tableau:
+    tableau = stim.Tableau(num_qubits)
+    for _ in range(4 * num_qubits):
+        gate = rng.choice(["H", "S", "CX"])
+        if gate == "CX" and num_qubits > 1:
+            control, target = rng.sample(range(num_qubits), 2)
+            tableau.append(stim.Tableau.from_named_gate(gate), [control, target])
+        else:
+            tableau.append(
+                stim.Tableau.from_named_gate(rng.choice(["H", "S"])),
+                [rng.randrange(num_qubits)],
+            )
+    return tableau
+
+
+def _random_circuit(
+    num_qubits: int,
+    num_gates: int,
+    gate_set: GateSet,
+    rng: random.Random,
+) -> stim.Circuit:
+    circuit = stim.Circuit()
+    for _ in range(num_gates):
+        if rng.randrange(4) == 0:
+            circuit.append(
+                stim.CircuitRepeatBlock(
+                    repeat_count=rng.randrange(2, 5),
+                    body=_random_flat_circuit(
+                        num_qubits=num_qubits,
+                        num_gates=rng.randrange(1, 4),
+                        gate_set=gate_set,
+                        rng=rng,
+                    ),
+                ),
+            )
+        else:
+            circuit.append(rng.choice(gate_set), [rng.randrange(num_qubits)], [])
+    return circuit
+
+
+def _random_flat_circuit(
+    num_qubits: int,
+    num_gates: int,
+    gate_set: GateSet,
+    rng: random.Random,
+) -> stim.Circuit:
+    circuit = stim.Circuit()
+    for _ in range(num_gates):
+        circuit.append(rng.choice(gate_set), [rng.randrange(num_qubits)], [])
+    return circuit
+
+
+def _stim_tableau_rows(tableau: stim.Tableau) -> list[stim.PauliString]:
+    return [tableau.x_output(q) for q in range(len(tableau))] + [
+        tableau.z_output(q) for q in range(len(tableau))
+    ]
+
+
+def _generate_gate_cases() -> list[tuple[int, int, stim.Tableau, stim.Circuit]]:
+    cases = []
+    for num_qubits in [1, 2, 3, 5]:
+        rng = random.Random(num_qubits)
+        for case in range(16):
+            initial_state = _random_initial_state(num_qubits, rng)
+            circuit = _random_circuit(
+                num_qubits=num_qubits,
+                num_gates=8 * num_qubits,
+                gate_set=SINGLE_QUBIT_CLIFFORD_GATES,
+                rng=rng,
+            )
+            cases.append((num_qubits, case, initial_state, circuit))
+    return cases
+
+
+@pytest.mark.parametrize(
+    ("num_qubits", "initial_state", "circuit"),
+    [
+        pytest.param(
+            num_qubits,
+            initial_state,
+            circuit,
+            id=f"{num_qubits}q-case-{case}",
+        )
+        for num_qubits, case, initial_state, circuit in _generate_gate_cases()
+    ],
+)
+def test_execute_matches_stim_for_random_initial_state_and_circuit(
+    num_qubits: int,
+    initial_state: stim.Tableau,
+    circuit: stim.Circuit,
+) -> None:
+    tableau = _from_stim_rows(_stim_tableau_rows(initial_state))
+
+    execute(tableau, circuit)
+    _assert_output_state_equal(initial_state, circuit, tableau)
+    assert tableau.num_qubits == num_qubits
+    assert tableau.satisfy_canonical_commutation()
+
+
+def _from_stim_rows(rows: list[stim.PauliString]) -> SymbolicTableau:
+    num_qubits = len(rows) // 2
+    xs = np.zeros((2 * num_qubits, num_qubits), dtype=np.uint8)
+    zs = np.zeros((2 * num_qubits, num_qubits), dtype=np.uint8)
+    phases: list[Boolean] = []
+
+    for row_index, row in enumerate(rows):
+        row_xs, row_zs = row.to_numpy()
+        xs[row_index] = row_xs.astype(np.uint8)
+        zs[row_index] = row_zs.astype(np.uint8)
+        phases.append(true if row.sign == -1 else false)
+
+    return SymbolicTableau(num_qubits=num_qubits, xs=xs, zs=zs, phases=phases)
+
+
+def _assert_output_state_equal(
+    initial_state: stim.Tableau,
+    circuit: stim.Circuit,
+    tableau: SymbolicTableau,
+) -> None:
+    rows = [row.after(circuit) for row in _stim_tableau_rows(initial_state)]
+    expected_xs = np.zeros_like(tableau.xs)
+    expected_zs = np.zeros_like(tableau.zs)
+    expected_phases: list[Boolean] = []
+
+    for row_index, row in enumerate(rows):
+        row_xs, row_zs = row.to_numpy()
+        expected_xs[row_index] = row_xs.astype(np.uint8)
+        expected_zs[row_index] = row_zs.astype(np.uint8)
+        expected_phases.append(true if row.sign == -1 else false)
+
+    np.testing.assert_array_equal(tableau.xs, expected_xs)
+    np.testing.assert_array_equal(tableau.zs, expected_zs)
+    assert tableau.phases == expected_phases

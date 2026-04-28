@@ -4,11 +4,16 @@ version = "0.1.0"
 description = "Symbolic execution engine for Stim"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "galois",
+    "numpy",
+    "sympy",
+    "stim",
+]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
+    "pytest",
 ]
 
 [tool.pytest.ini_options]

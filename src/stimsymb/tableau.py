@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import galois
 import numpy as np
 from numpy.typing import NDArray
-from sympy.logic.boolalg import Boolean, false
+from sympy.logic.boolalg import Boolean, Xor, false, true
 
 
 GF2Matrix = NDArray[np.uint8]
@@ -20,6 +20,18 @@ def _symplectic_products(
 ) -> GF2Matrix:
     """Return pairwise binary symplectic products between Pauli row sets."""
     return (left_xs @ right_zs.T + left_zs @ right_xs.T) % 2
+
+
+def _product_phase_flip(
+    left_xs: GF2Matrix,
+    left_zs: GF2Matrix,
+    right_xs: GF2Matrix,
+    right_zs: GF2Matrix,
+) -> bool:
+    """Return whether multiplying two commuting Pauli rows flips the sign."""
+    zx = int(left_zs @ right_xs)
+    xz = int(left_xs @ right_zs)
+    return (zx - xz) % 4 == 2
 
 
 def _check_gf2_matrix(name: str, matrix: GF2Matrix, shape: tuple[int, int]) -> None:
@@ -179,6 +191,37 @@ class SymbolicTableau:
             np.array_equal(dd, zero)
             and np.array_equal(ds, eye)
             and np.array_equal(ss, zero)
+        )
+
+    def multiply_row(self, target: int, source: int) -> None:
+        """Right-multiply one tableau row by another commuting tableau row."""
+        rows = 2 * self.num_qubits
+        if target < 0 or target >= rows:
+            raise IndexError("target row index out of range")
+        if source < 0 or source >= rows:
+            raise IndexError("source row index out of range")
+
+        anticommutes = _symplectic_products(
+            self.xs[target : target + 1],
+            self.zs[target : target + 1],
+            self.xs[source : source + 1],
+            self.zs[source : source + 1],
+        )[0, 0]
+        if anticommutes:
+            raise ValueError("cannot multiply anticommuting tableau rows")
+
+        flips_phase = _product_phase_flip(
+            self.xs[target],
+            self.zs[target],
+            self.xs[source],
+            self.zs[source],
+        )
+        self.xs[target] ^= self.xs[source]
+        self.zs[target] ^= self.zs[source]
+        self.phases[target] = Xor(
+            self.phases[target],
+            self.phases[source],
+            true if flips_phase else false,
         )
 
     @classmethod

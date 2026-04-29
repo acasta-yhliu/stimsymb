@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 import stim
 
+from sympy import Symbol
 from sympy.logic.boolalg import Boolean, Xor, false, true
 
 from stimsymb.double_qubit import (
@@ -14,7 +16,7 @@ from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     SINGLE_QUBIT_MEASUREMENTS,
     apply_single_qubit_gate,
-    apply_single_qubit_measurement,
+    apply_single_qubit_measurement_maybe_reset,
 )
 from stimsymb.tableau import SymbolicTableau
 
@@ -78,18 +80,35 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
 
         if instruction.name in SINGLE_QUBIT_MEASUREMENTS:
             for target in instruction.targets_copy():
-                # Measurement ids are the current record length: m0, m1, ...
                 qubit = target.qubit_value
                 if qubit is None:
                     raise NotImplementedError("measurement only supports qubit targets")
-                result = apply_single_qubit_measurement(
+                # Plain measurements append to the public record; resets keep
+                # their outcomes latent so later noise can reuse the same path.
+                is_latent = instruction.name in {"R", "RX", "RY"}
+                # Visible and latent outcomes use separate symbol namespaces.
+                result_symbol = (
+                    _latent_symbol(len(state.latent_symbols))
+                    if is_latent
+                    else _measurement_symbol(len(state.measurements))
+                )
+                result = apply_single_qubit_measurement_maybe_reset(
                     state.tableau,
                     instruction.name,
                     qubit,
-                    len(state.measurements),
+                    result_symbol,
                 )
-                _record_distribution(state, result, p_true=0.5)
-                state.measurements.append(result)
+                # Only fresh nondeterministic outcomes inherit the default
+                # Bernoulli distribution; deterministic results return an
+                # existing expression or literal instead.
+                if result == result_symbol:
+                    _record_distribution(state, result, p_true=0.5)
+                # Resets stash their outcomes internally, while measurements
+                # expose them through Stim's measurement record.
+                if is_latent:
+                    state.latent_symbols.append(result)
+                else:
+                    state.measurements.append(result)
             continue
 
         if instruction.name in SINGLE_QUBIT_GATES:
@@ -153,3 +172,13 @@ def _record_distribution(state: SymbolicState, symbol: Boolean, p_true: float) -
     """Record the Bernoulli distribution for a newly introduced symbol."""
     if symbol not in {false, true}:
         state.distribution[symbol] = p_true
+
+
+def _measurement_symbol(measurement_id: int) -> Boolean:
+    """Return the fresh symbolic name for a visible measurement outcome."""
+    return cast(Boolean, Symbol(f"m{measurement_id}", boolean=True))
+
+
+def _latent_symbol(latent_id: int) -> Boolean:
+    """Return the fresh symbolic name for a latent internal outcome."""
+    return cast(Boolean, Symbol(f"l{latent_id}", boolean=True))

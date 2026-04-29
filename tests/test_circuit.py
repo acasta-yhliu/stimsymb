@@ -3,6 +3,7 @@ import random
 import numpy as np
 import pytest
 import stim
+from sympy import Symbol
 from sympy.logic.boolalg import Boolean, false, true
 
 from stimsymb.double_qubit import DOUBLE_QUBIT_GATES
@@ -10,7 +11,7 @@ from stimsymb.execution import execute, SymbolicState
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     SINGLE_QUBIT_MEASUREMENTS,
-    apply_single_qubit_measurement,
+    apply_single_qubit_measurement_maybe_reset,
 )
 from stimsymb.tableau import SymbolicTableau
 
@@ -51,8 +52,7 @@ def test_single_qubit_measurements_come_from_stim_metadata() -> None:
                 if (
                     data.is_single_qubit_gate
                     and not data.is_unitary
-                    and not data.is_reset
-                    and name in {"M", "MX", "MY"}
+                    and name in {"M", "MR", "MRX", "MRY", "MX", "MY", "R", "RX", "RY"}
                 )
             )
         )
@@ -258,6 +258,98 @@ def test_execute_deterministic_measurement_does_not_add_distribution() -> None:
     assert state.distribution == {}
 
 
+@pytest.mark.parametrize(
+    "circuit",
+    ["R 0", "H 0\nRX 0", "H 0\nS 0\nRY 0"],
+)
+def test_execute_records_deterministic_reset_as_latent_result(circuit: str) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit(circuit))
+
+    assert state.measurements == []
+    assert state.latent_symbols == [false]
+    assert state.distribution == {}
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+@pytest.mark.parametrize(
+    ("circuit", "final_measurement"),
+    [
+        ("H 0\nR 0", "M"),
+        ("RX 0", "MX"),
+        ("RY 0", "MY"),
+    ],
+)
+def test_execute_symbolic_reset_uses_latent_symbol_and_prepares_plus_eigenstate(
+    circuit: str,
+    final_measurement: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit(f"{circuit}\n{final_measurement} 0"))
+
+    assert len(state.latent_symbols) == 1
+    assert str(state.latent_symbols[0]) == "l0"
+    assert state.measurements == [false]
+    assert state.distribution == {state.latent_symbols[0]: 0.5}
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+@pytest.mark.parametrize(
+    ("circuit", "expected_prep"),
+    [
+        ("MR 0", ""),
+        ("H 0\nMRX 0", "H 0"),
+        ("H 0\nS 0\nMRY 0", "H 0\nS 0"),
+    ],
+)
+def test_execute_measurement_reset_matches_prepared_plus_eigenstate(
+    circuit: str,
+    expected_prep: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+    expected = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit(circuit))
+    execute(expected, stim.Circuit(expected_prep))
+
+    assert len(state.measurements) == 1
+    assert state.measurements == [false]
+    assert state.distribution == {}
+    np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
+    np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
+    assert state.tableau.phases == expected.tableau.phases
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+@pytest.mark.parametrize(
+    ("circuit", "expected_prep"),
+    [
+        ("H 0\nMR 0", ""),
+        ("MRX 0", "H 0"),
+        ("MRY 0", "H 0\nS 0"),
+    ],
+)
+def test_execute_symbolic_measurement_reset_records_result_and_resets_state(
+    circuit: str,
+    expected_prep: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+    expected = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit(circuit))
+    execute(expected, stim.Circuit(expected_prep))
+
+    assert len(state.measurements) == 1
+    assert str(state.measurements[0]) == "m0"
+    assert state.distribution == {state.measurements[0]: 0.5}
+    np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
+    np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
+    assert state.tableau.phases == expected.tableau.phases
+    assert state.tableau.satisfy_canonical_commutation()
+
+
 def test_execute_records_mpad_without_changing_tableau() -> None:
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
     xs = state.tableau.xs.copy()
@@ -356,11 +448,11 @@ def test_measure_returns_deterministic_result_without_symbol(
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
     execute(state, stim.Circuit(circuit))
 
-    result = apply_single_qubit_measurement(
+    result = apply_single_qubit_measurement_maybe_reset(
         state.tableau,
         gate_name,
         0,
-        measurement_id=0,
+        result_symbol=false,
     )
 
     assert result == false
@@ -374,11 +466,11 @@ def test_measure_introduces_symbol_for_nondeterministic_result(gate_name: str) -
     if gate_name == "M":
         execute(state, stim.Circuit("H 0"))
 
-    result = apply_single_qubit_measurement(
+    result = apply_single_qubit_measurement_maybe_reset(
         state.tableau,
         gate_name,
         0,
-        measurement_id=0,
+        result_symbol=Symbol("m0", boolean=True),
     )
 
     assert str(result) == "m0"

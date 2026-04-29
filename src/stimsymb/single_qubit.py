@@ -2,17 +2,16 @@ from __future__ import annotations
 
 from functools import cache
 from dataclasses import dataclass
-from typing import cast
 
 import numpy as np
 import stim
 from numpy.typing import NDArray
-from sympy import Symbol
 from sympy.logic.boolalg import Boolean, Xor, false, true
 
 from stimsymb.tableau import SymbolicTableau
 
 _LOCAL_PAULIS = ("_", "X", "Z", "Y")
+_SINGLE_QUBIT_PAULI_GATES = {"X": (1, 0), "Y": (1, 1), "Z": (0, 1)}
 
 SINGLE_QUBIT_GATES = tuple(
     sorted(
@@ -22,15 +21,52 @@ SINGLE_QUBIT_GATES = tuple(
     )
 )
 
-SINGLE_QUBIT_MEASUREMENTS = ("M", "MX", "MY")
-_SINGLE_QUBIT_MEASUREMENT_BASIS = {"M": "Z", "MX": "X", "MY": "Y"}
+SINGLE_QUBIT_MEASUREMENTS = tuple(
+    sorted(
+        name
+        for name, data in stim.gate_data().items()
+        if (
+            data.is_single_qubit_gate
+            and not data.is_unitary
+            and name in {"M", "MR", "MRX", "MRY", "MX", "MY", "R", "RX", "RY"}
+        )
+    )
+)
+_SINGLE_QUBIT_MEASUREMENT_BASIS = {
+    "M": "Z",
+    "MR": "Z",
+    "MRX": "X",
+    "MRY": "Y",
+    "MX": "X",
+    "MY": "Y",
+    "R": "Z",
+    "RX": "X",
+    "RY": "Y",
+}
+_SINGLE_QUBIT_MEASUREMENT_RESET_MEASUREMENTS = {
+    "MR": "M",
+    "MRX": "MX",
+    "MRY": "MY",
+    "R": "M",
+    "RX": "MX",
+    "RY": "MY",
+}
+_SINGLE_QUBIT_MEASUREMENT_RESET_CORRECTIONS = {
+    "MR": "X",
+    "MRX": "Z",
+    "MRY": "Z",
+    "R": "X",
+    "RX": "Z",
+    "RY": "Z",
+}
 
 __all__ = [
     "SINGLE_QUBIT_GATES",
     "SINGLE_QUBIT_MEASUREMENTS",
     "SingleQubitLocalPauliMap",
+    "apply_conditional_single_qubit_pauli",
     "apply_single_qubit_gate",
-    "apply_single_qubit_measurement",
+    "apply_single_qubit_measurement_maybe_reset",
 ]
 
 
@@ -101,15 +137,15 @@ def apply_single_qubit_gate(
     SingleQubitLocalPauliMap.from_named_gate(gate_name).apply(tableau, qubit)
 
 
-def apply_single_qubit_measurement(
+def _apply_single_qubit_measurement(
     tableau: SymbolicTableau,
     gate_name: str,
     qubit: int,
-    measurement_id: int,
+    result_symbol: Boolean,
 ) -> Boolean:
     """Apply a Pauli measurement to a tableau and return its result.
 
-    Nondeterministic measurements introduce ``m{measurement_id}``.
+    Nondeterministic measurements introduce ``result_symbol``.
     """
     if qubit < 0 or qubit >= tableau.num_qubits:
         raise IndexError("qubit index out of range")
@@ -159,30 +195,85 @@ def apply_single_qubit_measurement(
                     tableau.phases[stabilizer],
                     true if (zx - xz) % 4 == 2 else false,
                 )
-        return phase
+        result = phase
+    else:
+        # Nondeterministic case: introduce a fresh symbolic outcome and update the
+        # tableau to make the measured Pauli a new stabilizer generator.
+        result = result_symbol
 
-    # Nondeterministic case: introduce a fresh symbolic outcome and update the
-    # tableau to make the measured Pauli a new stabilizer generator.
-    result = cast(Boolean, Symbol(f"m{measurement_id}", boolean=True))
+        # The pivot stabilizer anticommutes with the measurement. Its paired
+        # destabilizer slot will receive the old pivot row.
+        destabilizer = pivot - tableau.num_qubits
 
-    # The pivot stabilizer anticommutes with the measurement. Its paired
-    # destabilizer slot will receive the old pivot row.
-    destabilizer = pivot - tableau.num_qubits
+        # Clear anticommutation from every non-pivot row by multiplying with the
+        # pivot stabilizer. After this, only the pivot row is replaced.
+        for row in range(2 * tableau.num_qubits):
+            if row not in {pivot, destabilizer} and products[row]:
+                tableau.multiply_row(row, pivot)
 
-    # Clear anticommutation from every non-pivot row by multiplying with the
-    # pivot stabilizer. After this, only the pivot row is replaced.
-    for row in range(2 * tableau.num_qubits):
-        if row not in {pivot, destabilizer} and products[row]:
-            tableau.multiply_row(row, pivot)
+        # Preserve canonical destabilizer/stabilizer pairing by moving the old
+        # pivot stabilizer into its corresponding destabilizer row.
+        tableau.xs[destabilizer] = tableau.xs[pivot].copy()
+        tableau.zs[destabilizer] = tableau.zs[pivot].copy()
+        tableau.phases[destabilizer] = tableau.phases[pivot]
 
-    # Preserve canonical destabilizer/stabilizer pairing by moving the old
-    # pivot stabilizer into its corresponding destabilizer row.
-    tableau.xs[destabilizer] = tableau.xs[pivot].copy()
-    tableau.zs[destabilizer] = tableau.zs[pivot].copy()
-    tableau.phases[destabilizer] = tableau.phases[pivot]
+        # The measured Pauli becomes the new stabilizer with symbolic phase/result.
+        tableau.xs[pivot] = measured_xs
+        tableau.zs[pivot] = measured_zs
+        tableau.phases[pivot] = result
 
-    # The measured Pauli becomes the new stabilizer with symbolic phase/result.
-    tableau.xs[pivot] = measured_xs
-    tableau.zs[pivot] = measured_zs
-    tableau.phases[pivot] = result
     return result
+
+
+def apply_single_qubit_measurement_maybe_reset(
+    tableau: SymbolicTableau,
+    gate_name: str,
+    qubit: int,
+    result_symbol: Boolean,
+) -> Boolean:
+    """Apply a single-qubit measurement-like gate, including reset variants."""
+    if gate_name not in SINGLE_QUBIT_MEASUREMENTS:
+        raise NotImplementedError(f"unsupported measurement gate: {gate_name}")
+
+    measurement_gate = _SINGLE_QUBIT_MEASUREMENT_RESET_MEASUREMENTS.get(
+        gate_name,
+        gate_name,
+    )
+    result = _apply_single_qubit_measurement(
+        tableau,
+        measurement_gate,
+        qubit,
+        result_symbol,
+    )
+    correction_gate = _SINGLE_QUBIT_MEASUREMENT_RESET_CORRECTIONS.get(gate_name)
+    if correction_gate is not None:
+        apply_conditional_single_qubit_pauli(
+            tableau,
+            correction_gate,
+            qubit,
+            result,
+        )
+    return result
+
+
+def apply_conditional_single_qubit_pauli(
+    tableau: SymbolicTableau,
+    gate_name: str,
+    qubit: int,
+    condition: Boolean,
+) -> None:
+    """Apply a Pauli gate conditioned on a symbolic Boolean."""
+    if qubit < 0 or qubit >= tableau.num_qubits:
+        raise IndexError("qubit index out of range")
+    if gate_name not in _SINGLE_QUBIT_PAULI_GATES:
+        raise NotImplementedError(f"unsupported conditional Pauli gate: {gate_name}")
+    if condition == false:
+        return
+
+    gate_x, gate_z = _SINGLE_QUBIT_PAULI_GATES[gate_name]
+    for row in range(2 * tableau.num_qubits):
+        anticommutes = (
+            tableau.xs[row, qubit] * gate_z + tableau.zs[row, qubit] * gate_x
+        ) % 2
+        if anticommutes:
+            tableau.phases[row] = Xor(tableau.phases[row], condition)

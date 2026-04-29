@@ -8,8 +8,9 @@ from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     SINGLE_QUBIT_MEASUREMENTS,
     SingleQubitLocalPauliMap,
+    apply_conditional_single_qubit_pauli,
     apply_single_qubit_gate,
-    apply_single_qubit_measurement,
+    apply_single_qubit_measurement_maybe_reset,
 )
 from stimsymb.tableau import SymbolicTableau
 
@@ -20,10 +21,11 @@ __all__ = [
     "SINGLE_QUBIT_GATES",
     "SINGLE_QUBIT_MEASUREMENTS",
     "SingleQubitLocalPauliMap",
+    "apply_conditional_single_qubit_pauli",
     "SymbolicState",
     "SymbolicTableau",
     "apply_double_qubit_gate",
     "apply_single_qubit_gate",
-    "apply_single_qubit_measurement",
+    "apply_single_qubit_measurement_maybe_reset",
     "execute",
 ]

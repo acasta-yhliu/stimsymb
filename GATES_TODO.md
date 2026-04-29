@@ -42,6 +42,12 @@ measurement-record padding, but it does not act on the tableau.
 - MPAD
 - MX
 - MY
+- R
+- RX
+- RY
+- MR
+- MRX
+- MRY
 
 ### Two-Qubit Clifford Gates
 
@@ -93,15 +99,6 @@ through their local Pauli maps.
 - MXX
 - MYY
 - MZZ
-
-### Resets
-
-- MR
-- MRX
-- MRY
-- R
-- RX
-- RY
 
 ### Noise And Errors
 

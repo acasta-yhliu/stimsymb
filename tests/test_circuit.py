@@ -5,8 +5,13 @@ import pytest
 import stim
 from sympy.logic.boolalg import Boolean, false, true
 
+from stimsymb.double_qubit import DOUBLE_QUBIT_GATES
 from stimsymb.execution import execute, SymbolicState
-from stimsymb.gates import SINGLE_QUBIT_CLIFFORD_GATES, apply_measurement
+from stimsymb.single_qubit import (
+    SINGLE_QUBIT_GATES,
+    SINGLE_QUBIT_MEASUREMENTS,
+    apply_single_qubit_measurement,
+)
 from stimsymb.tableau import SymbolicTableau
 
 
@@ -22,7 +27,38 @@ def test_single_qubit_clifford_gates_come_from_stim_metadata() -> None:
         )
     )
 
-    assert SINGLE_QUBIT_CLIFFORD_GATES == expected
+    assert SINGLE_QUBIT_GATES == expected
+
+
+def test_double_qubit_clifford_gates_come_from_stim_metadata() -> None:
+    expected = tuple(
+        sorted(
+            name
+            for name, data in stim.gate_data().items()
+            if data.is_unitary and data.is_two_qubit_gate
+        )
+    )
+
+    assert DOUBLE_QUBIT_GATES == expected
+
+
+def test_single_qubit_measurements_come_from_stim_metadata() -> None:
+    expected = tuple(
+        sorted(
+            tuple(
+                name
+                for name, data in stim.gate_data().items()
+                if (
+                    data.is_single_qubit_gate
+                    and not data.is_unitary
+                    and not data.is_reset
+                    and name in {"M", "MX", "MY"}
+                )
+            )
+        )
+    )
+
+    assert SINGLE_QUBIT_MEASUREMENTS == expected
 
 
 def _random_initial_state(num_qubits: int, rng: random.Random) -> stim.Tableau:
@@ -61,7 +97,7 @@ def _random_circuit(
                 ),
             )
         else:
-            circuit.append(rng.choice(gate_set), [rng.randrange(num_qubits)], [])
+            _append_random_gate(circuit, num_qubits, gate_set, rng)
     return circuit
 
 
@@ -73,8 +109,25 @@ def _random_flat_circuit(
 ) -> stim.Circuit:
     circuit = stim.Circuit()
     for _ in range(num_gates):
-        circuit.append(rng.choice(gate_set), [rng.randrange(num_qubits)], [])
+        _append_random_gate(circuit, num_qubits, gate_set, rng)
     return circuit
+
+
+def _append_random_gate(
+    circuit: stim.Circuit,
+    num_qubits: int,
+    gate_set: GateSet,
+    rng: random.Random,
+) -> None:
+    gate = rng.choice(gate_set)
+    if gate in DOUBLE_QUBIT_GATES:
+        if num_qubits < 2:
+            _append_random_gate(circuit, num_qubits, gate_set, rng)
+            return
+        circuit.append(gate, rng.sample(range(num_qubits), 2), [])
+        return
+
+    circuit.append(gate, [rng.randrange(num_qubits)], [])
 
 
 def _stim_tableau_rows(tableau: stim.Tableau) -> list[stim.PauliString]:
@@ -92,7 +145,24 @@ def _generate_gate_cases() -> list[tuple[int, int, stim.Tableau, stim.Circuit]]:
             circuit = _random_circuit(
                 num_qubits=num_qubits,
                 num_gates=8 * num_qubits,
-                gate_set=SINGLE_QUBIT_CLIFFORD_GATES,
+                gate_set=SINGLE_QUBIT_GATES,
+                rng=rng,
+            )
+            cases.append((num_qubits, case, initial_state, circuit))
+    return cases
+
+
+def _generate_two_qubit_gate_cases() -> list[tuple[int, int, stim.Tableau, stim.Circuit]]:
+    cases = []
+    gate_set = SINGLE_QUBIT_GATES + DOUBLE_QUBIT_GATES
+    for num_qubits in [2, 3, 5]:
+        rng = random.Random(100 + num_qubits)
+        for case in range(16):
+            initial_state = _random_initial_state(num_qubits, rng)
+            circuit = _random_circuit(
+                num_qubits=num_qubits,
+                num_gates=8 * num_qubits,
+                gate_set=gate_set,
                 rng=rng,
             )
             cases.append((num_qubits, case, initial_state, circuit))
@@ -125,6 +195,32 @@ def test_execute_matches_stim_for_random_initial_state_and_circuit(
 
 
 @pytest.mark.parametrize(
+    ("num_qubits", "initial_state", "circuit"),
+    [
+        pytest.param(
+            num_qubits,
+            initial_state,
+            circuit,
+            id=f"{num_qubits}q-two-qubit-case-{case}",
+        )
+        for num_qubits, case, initial_state, circuit in _generate_two_qubit_gate_cases()
+    ],
+)
+def test_execute_two_qubit_clifford_circuits_match_stim(
+    num_qubits: int,
+    initial_state: stim.Tableau,
+    circuit: stim.Circuit,
+) -> None:
+    state = SymbolicState(tableau=_from_stim_rows(_stim_tableau_rows(initial_state)))
+
+    execute(state, circuit)
+
+    _assert_output_state_equal(initial_state, circuit, state.tableau)
+    assert state.tableau.num_qubits == num_qubits
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+@pytest.mark.parametrize(
     ("circuit", "basis"),
     [
         ("M 0", "Z"),
@@ -148,8 +244,18 @@ def test_execute_records_symbolic_nondeterministic_measurement() -> None:
     execute(state, stim.Circuit("H 0\nM 0"))
 
     assert str(state.measurements[0]) == "m0"
+    assert state.distribution == {state.measurements[0]: 0.5}
     assert state.tableau.phases[state.tableau.num_qubits :] == state.measurements
     assert state.tableau.satisfy_canonical_commutation()
+
+
+def test_execute_deterministic_measurement_does_not_add_distribution() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("M 0"))
+
+    assert state.measurements == [false]
+    assert state.distribution == {}
 
 
 def test_execute_records_mpad_without_changing_tableau() -> None:
@@ -236,36 +342,48 @@ def test_execute_records_observable_expressions() -> None:
 
 
 @pytest.mark.parametrize(
-    ("circuit", "basis"),
+    ("circuit", "gate_name"),
     [
-        ("", "Z"),
-        ("H 0", "X"),
-        ("H 0\nS 0", "Y"),
+        ("", "M"),
+        ("H 0", "MX"),
+        ("H 0\nS 0", "MY"),
     ],
 )
 def test_measure_returns_deterministic_result_without_symbol(
     circuit: str,
-    basis: str,
+    gate_name: str,
 ) -> None:
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
     execute(state, stim.Circuit(circuit))
 
-    result = apply_measurement(state.tableau, basis, 0, measurement_id=0)
+    result = apply_single_qubit_measurement(
+        state.tableau,
+        gate_name,
+        0,
+        measurement_id=0,
+    )
 
     assert result == false
     assert state.measurements == []
 
 
-@pytest.mark.parametrize("basis", ["X", "Y", "Z"])
-def test_measure_introduces_symbol_for_nondeterministic_result(basis: str) -> None:
+@pytest.mark.parametrize("gate_name", ["MX", "MY", "M"])
+def test_measure_introduces_symbol_for_nondeterministic_result(gate_name: str) -> None:
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
 
-    if basis == "Z":
+    if gate_name == "M":
         execute(state, stim.Circuit("H 0"))
 
-    result = apply_measurement(state.tableau, basis, 0, measurement_id=0)
+    result = apply_single_qubit_measurement(
+        state.tableau,
+        gate_name,
+        0,
+        measurement_id=0,
+    )
 
     assert str(result) == "m0"
+
+
 
 
 def _from_stim_rows(rows: list[stim.PauliString]) -> SymbolicTableau:

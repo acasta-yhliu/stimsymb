@@ -6,11 +6,15 @@ import stim
 
 from sympy.logic.boolalg import Boolean, Xor, false, true
 
-from stimsymb.gates import (
-    MEASUREMENT_GATES,
-    SINGLE_QUBIT_CLIFFORD_GATES,
-    apply_measurement,
-    apply_single_qubit_clifford,
+from stimsymb.double_qubit import (
+    DOUBLE_QUBIT_GATES,
+    apply_double_qubit_gate,
+)
+from stimsymb.single_qubit import (
+    SINGLE_QUBIT_GATES,
+    SINGLE_QUBIT_MEASUREMENTS,
+    apply_single_qubit_gate,
+    apply_single_qubit_measurement,
 )
 from stimsymb.tableau import SymbolicTableau
 
@@ -30,6 +34,8 @@ class SymbolicState:
     """Symbolic execution state containing a tableau and measurement results."""
 
     tableau: SymbolicTableau
+    latent_symbols: list[Boolean] = field(default_factory=list)
+    distribution: dict[Boolean, float] = field(default_factory=dict)
     measurements: list[Boolean] = field(default_factory=list)
     detectors: list[RecordExpression] = field(default_factory=list)
     observables: list[RecordExpression] = field(default_factory=list)
@@ -70,27 +76,55 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
                 state.measurements.append(true if qubit else false)
             continue
 
-        if instruction.name in MEASUREMENT_GATES:
+        if instruction.name in SINGLE_QUBIT_MEASUREMENTS:
             for target in instruction.targets_copy():
                 # Measurement ids are the current record length: m0, m1, ...
                 qubit = target.qubit_value
                 if qubit is None:
                     raise NotImplementedError("measurement only supports qubit targets")
-                result = apply_measurement(
+                result = apply_single_qubit_measurement(
                     state.tableau,
-                    MEASUREMENT_GATES[instruction.name],
+                    instruction.name,
                     qubit,
                     len(state.measurements),
                 )
+                _record_distribution(state, result, p_true=0.5)
                 state.measurements.append(result)
             continue
 
-        if instruction.name in SINGLE_QUBIT_CLIFFORD_GATES:
+        if instruction.name in SINGLE_QUBIT_GATES:
             for target in instruction.targets_copy():
                 qubit = target.qubit_value
                 if qubit is None:
-                    raise NotImplementedError("single-qubit gates only support qubit targets")
-                apply_single_qubit_clifford(state.tableau, instruction.name, qubit)
+                    raise NotImplementedError(
+                        "single-qubit gates only support qubit targets"
+                    )
+                apply_single_qubit_gate(state.tableau, instruction.name, qubit)
+            continue
+
+        if instruction.name in DOUBLE_QUBIT_GATES:
+            targets = instruction.targets_copy()
+            if len(targets) % 2 != 0:
+                raise NotImplementedError(
+                    "two-qubit gates require pairs of qubit targets"
+                )
+            for first_target, second_target in zip(
+                targets[0::2],
+                targets[1::2],
+                strict=True,
+            ):
+                first_qubit = first_target.qubit_value
+                second_qubit = second_target.qubit_value
+                if first_qubit is None or second_qubit is None:
+                    raise NotImplementedError(
+                        "two-qubit gates only support qubit targets"
+                    )
+                apply_double_qubit_gate(
+                    state.tableau,
+                    instruction.name,
+                    first_qubit,
+                    second_qubit,
+                )
             continue
 
         raise NotImplementedError(f"unsupported instruction: {instruction.name}")
@@ -113,3 +147,9 @@ def _record_expression(
         expression=Xor(*terms) if terms else false,
         args=tuple(instruction.gate_args_copy()),
     )
+
+
+def _record_distribution(state: SymbolicState, symbol: Boolean, p_true: float) -> None:
+    """Record the Bernoulli distribution for a newly introduced symbol."""
+    if symbol not in {false, true}:
+        state.distribution[symbol] = p_true

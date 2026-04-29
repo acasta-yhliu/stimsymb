@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+from functools import cache
+from dataclasses import dataclass
 from typing import cast
 
 import numpy as np
 import stim
+from numpy.typing import NDArray
 from sympy import Symbol
 from sympy.logic.boolalg import Boolean, Xor, false, true
 
 from stimsymb.tableau import SymbolicTableau
 
-LocalPauliMap = tuple[tuple[int, int, bool], ...]
-MeasurementBasis = str
 _LOCAL_PAULIS = ("_", "X", "Z", "Y")
-MEASUREMENT_GATES = {"M": "Z", "MX": "X", "MY": "Y", "MZ": "Z"}
 
-SINGLE_QUBIT_CLIFFORD_GATES = tuple(
+SINGLE_QUBIT_GATES = tuple(
     sorted(
         name
         for name, data in stim.gate_data().items()
@@ -22,15 +22,71 @@ SINGLE_QUBIT_CLIFFORD_GATES = tuple(
     )
 )
 
+SINGLE_QUBIT_MEASUREMENTS = ("M", "MX", "MY")
+_SINGLE_QUBIT_MEASUREMENT_BASIS = {"M": "Z", "MX": "X", "MY": "Y"}
+
 __all__ = [
-    "MEASUREMENT_GATES",
-    "SINGLE_QUBIT_CLIFFORD_GATES",
-    "apply_measurement",
-    "apply_single_qubit_clifford",
+    "SINGLE_QUBIT_GATES",
+    "SINGLE_QUBIT_MEASUREMENTS",
+    "SingleQubitLocalPauliMap",
+    "apply_single_qubit_gate",
+    "apply_single_qubit_measurement",
 ]
 
 
-def apply_single_qubit_clifford(
+@dataclass(frozen=True, slots=True)
+class SingleQubitLocalPauliMap:
+    """Compact lookup table for one-qubit Pauli conjugation."""
+
+    entries: NDArray[np.uint8]
+
+    def __post_init__(self) -> None:
+        if self.entries.shape != (len(_LOCAL_PAULIS), 3):
+            raise ValueError("single-qubit local Pauli map must have shape (4, 3)")
+        if self.entries.dtype != np.uint8:
+            raise TypeError("single-qubit local Pauli map must have uint8 dtype")
+
+    def __getitem__(self, index: int) -> tuple[int, int, bool]:
+        row = self.entries[index]
+        return int(row[0]), int(row[1]), bool(row[2])
+
+    @classmethod
+    @cache
+    def from_named_gate(cls, gate_name: str) -> SingleQubitLocalPauliMap:
+        """Return the one-qubit Pauli conjugation map induced by a Stim gate."""
+        gate = stim.Tableau.from_named_gate(gate_name)
+        entries = np.zeros((len(_LOCAL_PAULIS), 3), dtype=np.uint8)
+        for row, pauli in enumerate(_LOCAL_PAULIS):
+            # Enumerate I, X, Z, Y in the same order used by the tableau index
+            # x + 2z, so a row's local support can index directly into this table.
+            out = stim.PauliString(pauli).after(gate, [0])
+            # Stim gives the conjugated Pauli support as separate X/Z indicator bits.
+            xs, zs = out.to_numpy()
+            # Column 0 stores the output X bit.
+            entries[row, 0] = xs[0]
+            # Column 1 stores the output Z bit.
+            entries[row, 1] = zs[0]
+            # Column 2 stores whether conjugation introduced a minus sign.
+            entries[row, 2] = out.sign == -1
+        return cls(entries)
+
+    def apply(self, tableau: SymbolicTableau, qubit: int) -> None:
+        """Apply this local Pauli map to one tableau qubit column."""
+        # Compute each row's local Pauli label in one vectorized pass.
+        indices = tableau.xs[:, qubit] + 2 * tableau.zs[:, qubit]
+        transformed = self.entries[indices]
+
+        # Rewrite the target column's X/Z support from the gathered map rows.
+        tableau.xs[:, qubit] = transformed[:, 0]
+        tableau.zs[:, qubit] = transformed[:, 1]
+
+        # Symbolic phase bits are Python objects, so only this final toggle
+        # step remains as a small row loop.
+        for row in np.flatnonzero(transformed[:, 2]):
+            tableau.phases[int(row)] = Xor(tableau.phases[int(row)], true)
+
+
+def apply_single_qubit_gate(
     tableau: SymbolicTableau,
     gate_name: str,
     qubit: int,
@@ -38,23 +94,16 @@ def apply_single_qubit_clifford(
     """Apply a supported single-qubit Clifford gate to a tableau in place."""
     if qubit < 0 or qubit >= tableau.num_qubits:
         raise IndexError("qubit index out of range")
-    if gate_name not in SINGLE_QUBIT_CLIFFORD_GATES:
+    if gate_name not in SINGLE_QUBIT_GATES:
         raise NotImplementedError(f"unsupported gate: {gate_name}")
 
     # The local map is indexed by (x + 2z): I, X, Z, Y.
-    local_map = _local_pauli_map(gate_name)
-    for row in range(2 * tableau.num_qubits):
-        index = int(tableau.xs[row, qubit] + 2 * tableau.zs[row, qubit])
-        new_x, new_z, flips_phase = local_map[index]
-        tableau.xs[row, qubit] = new_x
-        tableau.zs[row, qubit] = new_z
-        if flips_phase:
-            tableau.phases[row] = Xor(tableau.phases[row], true)
+    SingleQubitLocalPauliMap.from_named_gate(gate_name).apply(tableau, qubit)
 
 
-def apply_measurement(
+def apply_single_qubit_measurement(
     tableau: SymbolicTableau,
-    basis: MeasurementBasis,
+    gate_name: str,
     qubit: int,
     measurement_id: int,
 ) -> Boolean:
@@ -64,8 +113,10 @@ def apply_measurement(
     """
     if qubit < 0 or qubit >= tableau.num_qubits:
         raise IndexError("qubit index out of range")
-    if basis not in {"X", "Y", "Z"}:
-        raise NotImplementedError(f"unsupported measurement basis: {basis}")
+    if gate_name not in SINGLE_QUBIT_MEASUREMENTS:
+        raise NotImplementedError(f"unsupported measurement gate: {gate_name}")
+
+    basis = _SINGLE_QUBIT_MEASUREMENT_BASIS[gate_name]
 
     # Encode the measured single-qubit Pauli as one binary symplectic row.
     measured_xs = np.zeros(tableau.num_qubits, dtype=np.uint8)
@@ -135,14 +186,3 @@ def apply_measurement(
     tableau.zs[pivot] = measured_zs
     tableau.phases[pivot] = result
     return result
-
-
-def _local_pauli_map(gate_name: str) -> LocalPauliMap:
-    """Return the one-qubit Pauli conjugation map induced by a Stim gate."""
-    gate = stim.Tableau.from_named_gate(gate_name)
-    entries = []
-    for pauli in _LOCAL_PAULIS:
-        out = stim.PauliString(pauli).after(gate, [0])
-        xs, zs = out.to_numpy()
-        entries.append((int(xs[0]), int(zs[0]), out.sign == -1))
-    return tuple(entries)

@@ -34,24 +34,19 @@ through their local Pauli maps.
 
 ### Measurements
 
+Supported single-qubit measurement instructions are the Stim-native gate names
+currently recognized by `SINGLE_QUBIT_MEASUREMENTS`. `MPAD` is also supported as
+measurement-record padding, but it does not act on the tableau.
+
 - M
 - MPAD
 - MX
 - MY
-- MZ
-
-### Structure
-
-- DETECTOR
-- OBSERVABLE_INCLUDE
-- QUBIT_COORDS
-- REPEAT
-- SHIFT_COORDS
-- TICK
-
-## Unsupported
 
 ### Two-Qubit Clifford Gates
+
+Stim two-qubit unitary gates are discovered from `stim.gate_data()` and applied
+through their local Pauli maps.
 
 - CX
 - CXSWAP
@@ -75,6 +70,17 @@ through their local Pauli maps.
 - YCX
 - YCY
 - YCZ
+
+### Structure
+
+- DETECTOR
+- OBSERVABLE_INCLUDE
+- QUBIT_COORDS
+- REPEAT
+- SHIFT_COORDS
+- TICK
+
+## Unsupported
 
 ### Multi-Pauli Unitaries
 

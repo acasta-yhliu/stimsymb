@@ -5,11 +5,24 @@ import pytest
 import stim
 from sympy.logic.boolalg import Boolean, false, true
 
-from stimsymb.circuit import SINGLE_QUBIT_CLIFFORD_GATES, execute
+from stimsymb.execution import execute, SymbolicState
+from stimsymb.gates import SINGLE_QUBIT_CLIFFORD_GATES, apply_measurement
 from stimsymb.tableau import SymbolicTableau
 
 
 GateSet = tuple[str, ...]
+
+
+def test_single_qubit_clifford_gates_come_from_stim_metadata() -> None:
+    expected = tuple(
+        sorted(
+            name
+            for name, data in stim.gate_data().items()
+            if data.is_unitary and data.is_single_qubit_gate
+        )
+    )
+
+    assert SINGLE_QUBIT_CLIFFORD_GATES == expected
 
 
 def _random_initial_state(num_qubits: int, rng: random.Random) -> stim.Tableau:
@@ -103,12 +116,156 @@ def test_execute_matches_stim_for_random_initial_state_and_circuit(
     initial_state: stim.Tableau,
     circuit: stim.Circuit,
 ) -> None:
-    tableau = _from_stim_rows(_stim_tableau_rows(initial_state))
+    state = SymbolicState(tableau=_from_stim_rows(_stim_tableau_rows(initial_state)))
 
-    execute(tableau, circuit)
-    _assert_output_state_equal(initial_state, circuit, tableau)
-    assert tableau.num_qubits == num_qubits
-    assert tableau.satisfy_canonical_commutation()
+    execute(state, circuit)
+    _assert_output_state_equal(initial_state, circuit, state.tableau)
+    assert state.tableau.num_qubits == num_qubits
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+@pytest.mark.parametrize(
+    ("circuit", "basis"),
+    [
+        ("M 0", "Z"),
+        ("H 0\nMX 0", "X"),
+        ("H 0\nS 0\nMY 0", "Y"),
+    ],
+)
+def test_execute_records_deterministic_measurement(circuit: str, basis: str) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit(circuit))
+
+    assert state.measurements == [false]
+    assert state.tableau.phases[state.tableau.num_qubits :] == [false]
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+def test_execute_records_symbolic_nondeterministic_measurement() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("H 0\nM 0"))
+
+    assert str(state.measurements[0]) == "m0"
+    assert state.tableau.phases[state.tableau.num_qubits :] == state.measurements
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+def test_execute_records_mpad_without_changing_tableau() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+    xs = state.tableau.xs.copy()
+    zs = state.tableau.zs.copy()
+    phases = state.tableau.phases.copy()
+
+    execute(state, stim.Circuit("MPAD 0 1 0"))
+
+    assert state.measurements == [false, true, false]
+    np.testing.assert_array_equal(state.tableau.xs, xs)
+    np.testing.assert_array_equal(state.tableau.zs, zs)
+    assert state.tableau.phases == phases
+
+
+def test_execute_ignores_metadata_instructions() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+    xs = state.tableau.xs.copy()
+    zs = state.tableau.zs.copy()
+    phases = state.tableau.phases.copy()
+
+    execute(
+        state,
+        stim.Circuit(
+            """
+            QUBIT_COORDS(1, 2) 0
+            SHIFT_COORDS(3, 4)
+            TICK
+            """
+        ),
+    )
+
+    assert state.measurements == []
+    np.testing.assert_array_equal(state.tableau.xs, xs)
+    np.testing.assert_array_equal(state.tableau.zs, zs)
+    assert state.tableau.phases == phases
+
+
+def test_execute_records_detector_expressions() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(
+        state,
+        stim.Circuit(
+            """
+            M 0
+            H 1
+            M 1
+            DETECTOR(1.5, 2, 3) rec[-1] rec[-2]
+            """
+        ),
+    )
+
+    assert state.measurements[0] == false
+    assert str(state.measurements[1]) == "m1"
+    assert len(state.detectors) == 1
+    assert state.detectors[0].expression == state.measurements[1]
+    assert state.detectors[0].args == (1.5, 2.0, 3.0)
+
+
+def test_execute_records_observable_expressions() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(
+        state,
+        stim.Circuit(
+            """
+            H 0
+            M 0
+            MPAD 1
+            OBSERVABLE_INCLUDE(3) rec[-2]
+            OBSERVABLE_INCLUDE(3) rec[-1]
+            """
+        ),
+    )
+
+    assert str(state.measurements[0]) == "m0"
+    assert len(state.observables) == 2
+    assert state.observables[0].expression == state.measurements[0]
+    assert state.observables[0].args == (3.0,)
+    assert state.observables[1].expression == true
+    assert state.observables[1].args == (3.0,)
+
+
+@pytest.mark.parametrize(
+    ("circuit", "basis"),
+    [
+        ("", "Z"),
+        ("H 0", "X"),
+        ("H 0\nS 0", "Y"),
+    ],
+)
+def test_measure_returns_deterministic_result_without_symbol(
+    circuit: str,
+    basis: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+    execute(state, stim.Circuit(circuit))
+
+    result = apply_measurement(state.tableau, basis, 0, measurement_id=0)
+
+    assert result == false
+    assert state.measurements == []
+
+
+@pytest.mark.parametrize("basis", ["X", "Y", "Z"])
+def test_measure_introduces_symbol_for_nondeterministic_result(basis: str) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    if basis == "Z":
+        execute(state, stim.Circuit("H 0"))
+
+    result = apply_measurement(state.tableau, basis, 0, measurement_id=0)
+
+    assert str(result) == "m0"
 
 
 def _from_stim_rows(rows: list[stim.PauliString]) -> SymbolicTableau:

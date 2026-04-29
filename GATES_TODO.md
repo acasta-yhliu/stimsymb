@@ -1,53 +1,64 @@
-# Stim Instruction Support TODO
+# Stim Instruction Support
 
-## Supported Now
+## Supported
 
-- All single-qubit Clifford gates
-- REPEAT
+### Single-Qubit Clifford Gates
 
-## Single-Qubit Clifford Gates
+Stim single-qubit unitary gates are discovered from `stim.gate_data()` and applied
+through their local Pauli maps.
 
-- I
-- X
-- Y
-- Z
-- H
-- S
-- S_DAG
-- SQRT_X
-- SQRT_X_DAG
-- SQRT_Y
-- SQRT_Y_DAG
-- H_XY
-- H_YZ
-- H_NXY
-- H_NXZ
-- H_NYZ
-- C_XYZ
-- C_ZYX
 - C_NXYZ
 - C_NZYX
 - C_XNYZ
 - C_XYNZ
+- C_XYZ
 - C_ZNYX
 - C_ZYNX
+- C_ZYX
+- H
+- H_NXY
+- H_NXZ
+- H_NYZ
+- H_XY
+- H_YZ
+- I
+- S
+- SQRT_X
+- SQRT_X_DAG
+- SQRT_Y
+- SQRT_Y_DAG
+- S_DAG
+- X
+- Y
+- Z
 
-## Two-Qubit Clifford Gates
+### Measurements
 
-- II
+- M
+- MPAD
+- MX
+- MY
+- MZ
+
+### Structure
+
+- DETECTOR
+- OBSERVABLE_INCLUDE
+- QUBIT_COORDS
+- REPEAT
+- SHIFT_COORDS
+- TICK
+
+## Unsupported
+
+### Two-Qubit Clifford Gates
+
 - CX
+- CXSWAP
 - CY
 - CZ
-- XCX
-- XCY
-- XCZ
-- YCX
-- YCY
-- YCZ
-- SWAP
-- CXSWAP
 - CZSWAP
-- SWAPCX
+- II
 - ISWAP
 - ISWAP_DAG
 - SQRT_XX
@@ -56,53 +67,48 @@
 - SQRT_YY_DAG
 - SQRT_ZZ
 - SQRT_ZZ_DAG
+- SWAP
+- SWAPCX
+- XCX
+- XCY
+- XCZ
+- YCX
+- YCY
+- YCZ
 
-## Multi-Pauli Unitaries
+### Multi-Pauli Unitaries
 
 - SPP
 - SPP_DAG
 
-## Measurements
+### Measurements
 
-- M
-- MX
-- MY
 - MPP
 - MXX
 - MYY
 - MZZ
-- MPAD
 
-## Resets
+### Resets
 
-- R
-- RX
-- RY
 - MR
 - MRX
 - MRY
+- R
+- RX
+- RY
 
-## Metadata And Structure
+### Noise And Errors
 
-- REPEAT
-- TICK
-- QUBIT_COORDS
-- SHIFT_COORDS
-- DETECTOR
-- OBSERVABLE_INCLUDE
-
-## Noise And Errors
-
-- X_ERROR
-- Y_ERROR
-- Z_ERROR
-- I_ERROR
-- II_ERROR
-- PAULI_CHANNEL_1
-- PAULI_CHANNEL_2
 - DEPOLARIZE1
 - DEPOLARIZE2
 - E
 - ELSE_CORRELATED_ERROR
 - HERALDED_ERASE
 - HERALDED_PAULI_CHANNEL_1
+- I_ERROR
+- II_ERROR
+- PAULI_CHANNEL_1
+- PAULI_CHANNEL_2
+- X_ERROR
+- Y_ERROR
+- Z_ERROR

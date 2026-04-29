@@ -12,6 +12,21 @@ GF2Matrix = NDArray[np.uint8]
 GF2 = galois.GF(2)
 
 
+@dataclass(slots=True)
+class CanonicalForm:
+    """Canonical stabilizer rows used for symbolic state equality."""
+
+    xs: GF2Matrix
+    zs: GF2Matrix
+    phases: tuple[Boolean, ...]
+
+    def __eq__(self, other: object) -> bool:
+        """Return whether two canonical forms have identical Pauli support."""
+        if not isinstance(other, CanonicalForm):
+            return NotImplemented
+        return np.array_equal(self.xs, other.xs) and np.array_equal(self.zs, other.zs)
+
+
 def _symplectic_products(
     left_xs: GF2Matrix,
     left_zs: GF2Matrix,
@@ -20,100 +35,6 @@ def _symplectic_products(
 ) -> GF2Matrix:
     """Return pairwise binary symplectic products between Pauli row sets."""
     return (left_xs @ right_zs.T + left_zs @ right_xs.T) % 2
-
-
-def _product_phase_flip(
-    left_xs: GF2Matrix,
-    left_zs: GF2Matrix,
-    right_xs: GF2Matrix,
-    right_zs: GF2Matrix,
-) -> bool:
-    """Return whether multiplying two commuting Pauli rows flips the sign."""
-    zx = int(left_zs @ right_xs)
-    xz = int(left_xs @ right_zs)
-    return (zx - xz) % 4 == 2
-
-
-def _check_gf2_matrix(name: str, matrix: GF2Matrix, shape: tuple[int, int]) -> None:
-    """Validate that a matrix has the expected GF(2) shape and values."""
-    if matrix.shape != shape:
-        raise ValueError(f"{name} must have shape {shape}")
-    if matrix.dtype != np.uint8:
-        raise TypeError(f"{name} must have uint8 dtype")
-    if np.any(matrix > 1):
-        raise ValueError(f"{name} must contain only 0 or 1")
-
-
-def _gf2_rank(matrix: GF2Matrix) -> int:
-    """Return the row rank of a GF(2) matrix."""
-    rref = np.asarray(GF2(matrix).row_reduce(), dtype=np.uint8)
-    return int(np.count_nonzero(np.any(rref, axis=1)))
-
-
-def _gf2_solve(matrix: GF2Matrix, rhs: GF2Matrix) -> GF2Matrix:
-    """Return one solution to a GF(2) linear system."""
-    rows, cols = matrix.shape
-    aug = np.concatenate([matrix.copy(), rhs.reshape(rows, 1)], axis=1)
-    pivot_cols: list[int] = []
-    pivot_row = 0
-
-    for col in range(cols):
-        pivots = np.flatnonzero(aug[pivot_row:, col])
-        if len(pivots) == 0:
-            continue
-
-        row = pivot_row + int(pivots[0])
-        aug[[pivot_row, row]] = aug[[row, pivot_row]]
-
-        # Eliminate this pivot column from every other row over GF(2).
-        for other in range(rows):
-            if other != pivot_row and aug[other, col]:
-                aug[other] ^= aug[pivot_row]
-
-        pivot_cols.append(col)
-        pivot_row += 1
-        if pivot_row == rows:
-            break
-
-    coefficients = aug[:, :cols]
-    if np.any((~np.any(coefficients, axis=1)) & (aug[:, cols] == 1)):
-        raise ValueError("GF(2) system is inconsistent")
-
-    solution = np.zeros(cols, dtype=np.uint8)
-    for row, col in enumerate(pivot_cols):
-        solution[col] = aug[row, cols]
-    return solution
-
-
-def _destabilizers_for(
-    stabilizer_xs: GF2Matrix,
-    stabilizer_zs: GF2Matrix,
-) -> tuple[GF2Matrix, GF2Matrix]:
-    """Return destabilizer support dual to independent commuting stabilizers."""
-    n = stabilizer_xs.shape[0]
-    system = np.concatenate([stabilizer_zs, stabilizer_xs], axis=1)
-    destabilizer_xs = np.zeros((n, n), dtype=np.uint8)
-    destabilizer_zs = np.zeros((n, n), dtype=np.uint8)
-
-    for row in range(n):
-        rhs = np.eye(n, dtype=np.uint8)[row]
-        solution = _gf2_solve(system, rhs)
-        destabilizer_xs[row] = solution[:n]
-        destabilizer_zs[row] = solution[n:]
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            anticommutes = _symplectic_products(
-                destabilizer_xs[i : i + 1],
-                destabilizer_zs[i : i + 1],
-                destabilizer_xs[j : j + 1],
-                destabilizer_zs[j : j + 1],
-            )[0, 0]
-            if anticommutes:
-                destabilizer_xs[j] ^= stabilizer_xs[i]
-                destabilizer_zs[j] ^= stabilizer_zs[i]
-
-    return destabilizer_xs, destabilizer_zs
 
 
 @dataclass(slots=True)
@@ -140,52 +61,42 @@ class SymbolicTableau:
             raise ValueError(f"phases must have length {rows}")
 
     @property
-    def destabilizer_xs(self) -> GF2Matrix:
-        return self.xs[: self.num_qubits]
-
-    @property
-    def destabilizer_zs(self) -> GF2Matrix:
-        return self.zs[: self.num_qubits]
-
-    @property
-    def destabilizer_phases(self) -> list[Boolean]:
-        return self.phases[: self.num_qubits]
-
-    @property
-    def stabilizer_xs(self) -> GF2Matrix:
-        return self.xs[self.num_qubits :]
-
-    @property
-    def stabilizer_zs(self) -> GF2Matrix:
-        return self.zs[self.num_qubits :]
-
-    @property
-    def stabilizer_phases(self) -> list[Boolean]:
-        return self.phases[self.num_qubits :]
+    def canonical_form(self) -> CanonicalForm:
+        """Return the canonical stabilizer form for equality checking."""
+        n = self.num_qubits
+        return _canonicalize_stabilizers(
+            self.xs[n:],
+            self.zs[n:],
+            self.phases[n:],
+        )
 
     def satisfy_canonical_commutation(self) -> bool:
         """Return whether destabilizers and stabilizers have canonical commutation."""
         n = self.num_qubits
         eye = np.eye(n, dtype=np.uint8)
         zero = np.zeros((n, n), dtype=np.uint8)
+        destabilizer_xs = self.xs[:n]
+        destabilizer_zs = self.zs[:n]
+        stabilizer_xs = self.xs[n:]
+        stabilizer_zs = self.zs[n:]
 
         dd = _symplectic_products(
-            self.destabilizer_xs,
-            self.destabilizer_zs,
-            self.destabilizer_xs,
-            self.destabilizer_zs,
+            destabilizer_xs,
+            destabilizer_zs,
+            destabilizer_xs,
+            destabilizer_zs,
         )
         ds = _symplectic_products(
-            self.destabilizer_xs,
-            self.destabilizer_zs,
-            self.stabilizer_xs,
-            self.stabilizer_zs,
+            destabilizer_xs,
+            destabilizer_zs,
+            stabilizer_xs,
+            stabilizer_zs,
         )
         ss = _symplectic_products(
-            self.stabilizer_xs,
-            self.stabilizer_zs,
-            self.stabilizer_xs,
-            self.stabilizer_zs,
+            stabilizer_xs,
+            stabilizer_zs,
+            stabilizer_xs,
+            stabilizer_zs,
         )
         return (
             np.array_equal(dd, zero)
@@ -210,18 +121,16 @@ class SymbolicTableau:
         if anticommutes:
             raise ValueError("cannot multiply anticommuting tableau rows")
 
-        flips_phase = _product_phase_flip(
-            self.xs[target],
-            self.zs[target],
-            self.xs[source],
-            self.zs[source],
-        )
+        # Row multiplication preserves the represented stabilizer group while
+        # changing the tableau basis.
+        zx = int(self.zs[target] @ self.xs[source])
+        xz = int(self.xs[target] @ self.zs[source])
         self.xs[target] ^= self.xs[source]
         self.zs[target] ^= self.zs[source]
         self.phases[target] = Xor(
             self.phases[target],
             self.phases[source],
-            true if flips_phase else false,
+            true if (zx - xz) % 4 == 2 else false,
         )
 
     @classmethod
@@ -267,9 +176,10 @@ class SymbolicTableau:
 
         if np.any(_symplectic_products(xs, zs, xs, zs)):
             raise ValueError("stabilizers must commute")
-        if _gf2_rank(np.concatenate([xs, zs], axis=1)) != n:
+        if int(np.linalg.matrix_rank(GF2(np.concatenate([xs, zs], axis=1)))) != n:
             raise ValueError("stabilizers must be independent")
 
+        # Destabilizers are a dual basis: D_i anticommutes only with S_i.
         destabilizer_xs, destabilizer_zs = _destabilizers_for(xs, zs)
         return cls(
             num_qubits=n,
@@ -277,3 +187,126 @@ class SymbolicTableau:
             zs=np.concatenate([destabilizer_zs, zs], axis=0),
             phases=[false] * n + stabilizer_phases,
         )
+
+
+def _canonicalize_stabilizers(
+    xs: GF2Matrix,
+    zs: GF2Matrix,
+    phases: list[Boolean],
+) -> CanonicalForm:
+    """Return row-reduced stabilizers with matching symbolic phases."""
+    xs = xs.copy()
+    zs = zs.copy()
+    phases = phases.copy()
+    rows, num_qubits = xs.shape
+    support = np.concatenate([xs, zs], axis=1)
+    pivot_row = 0
+
+    for col in range(2 * num_qubits):
+        pivots = np.flatnonzero(support[pivot_row:, col])
+        if len(pivots) == 0:
+            continue
+
+        source = pivot_row + int(pivots[0])
+        if source != pivot_row:
+            support[[pivot_row, source]] = support[[source, pivot_row]]
+            xs[[pivot_row, source]] = xs[[source, pivot_row]]
+            zs[[pivot_row, source]] = zs[[source, pivot_row]]
+            phases[pivot_row], phases[source] = phases[source], phases[pivot_row]
+
+        for row in range(rows):
+            if row == pivot_row or not support[row, col]:
+                continue
+
+            # RREF row addition is Pauli-row multiplication. Since stabilizers
+            # commute, support XOR is enough, with this sign correction.
+            zx = int(zs[row] @ xs[pivot_row])
+            xz = int(xs[row] @ zs[pivot_row])
+            xs[row] ^= xs[pivot_row]
+            zs[row] ^= zs[pivot_row]
+            support[row] ^= support[pivot_row]
+            phases[row] = Xor(
+                phases[row],
+                phases[pivot_row],
+                true if (zx - xz) % 4 == 2 else false,
+            )
+
+        pivot_row += 1
+        if pivot_row == rows:
+            break
+
+    return CanonicalForm(
+        xs=xs,
+        zs=zs,
+        phases=tuple(phases),
+    )
+
+
+def _destabilizers_for(
+    stabilizer_xs: GF2Matrix,
+    stabilizer_zs: GF2Matrix,
+) -> tuple[GF2Matrix, GF2Matrix]:
+    """Return destabilizer support dual to independent commuting stabilizers."""
+    n = stabilizer_xs.shape[0]
+
+    # For each destabilizer D_i = (x | z), require <D_i, S_j> = delta_ij.
+    # Since <(x | z), (sx | sz)> = x.sz + z.sx over GF(2), this is the
+    # linear system [S_z | S_x] [x | z]^T = e_i.
+    system = np.concatenate([stabilizer_zs, stabilizer_xs], axis=1)
+    destabilizer_xs = np.zeros((n, n), dtype=np.uint8)
+    destabilizer_zs = np.zeros((n, n), dtype=np.uint8)
+
+    for row in range(n):
+        # Solving against e_i gives a Pauli that anticommutes with S_i and
+        # commutes with every other stabilizer. Free variables are set to 0.
+        rhs = np.eye(n, dtype=np.uint8)[row]
+        solution = _gf2_solve(system, rhs)
+        destabilizer_xs[row] = solution[:n]
+        destabilizer_zs[row] = solution[n:]
+
+    # The dual-basis equations do not force the destabilizers to commute with
+    # each other. Triangular cleanup fixes D_i/D_j anticommutation without
+    # changing any D_j/S_k relation.
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Stabilizer row i is the canonical partner of destabilizer row i.
+            # Multiplying it into row j removes D_i/D_j anticommutation.
+            anticommutes = _symplectic_products(
+                destabilizer_xs[i : i + 1],
+                destabilizer_zs[i : i + 1],
+                destabilizer_xs[j : j + 1],
+                destabilizer_zs[j : j + 1],
+            )[0, 0]
+            if anticommutes:
+                destabilizer_xs[j] ^= stabilizer_xs[i]
+                destabilizer_zs[j] ^= stabilizer_zs[i]
+
+    return destabilizer_xs, destabilizer_zs
+
+
+def _check_gf2_matrix(name: str, matrix: GF2Matrix, shape: tuple[int, int]) -> None:
+    """Validate that a matrix has the expected GF(2) shape and values."""
+    if matrix.shape != shape:
+        raise ValueError(f"{name} must have shape {shape}")
+    if matrix.dtype != np.uint8:
+        raise TypeError(f"{name} must have uint8 dtype")
+    if np.any(matrix > 1):
+        raise ValueError(f"{name} must contain only 0 or 1")
+
+
+def _gf2_solve(matrix: GF2Matrix, rhs: GF2Matrix) -> GF2Matrix:
+    """Return one solution to a GF(2) linear system."""
+    rows, cols = matrix.shape
+    aug = np.concatenate([matrix.copy(), rhs.reshape(rows, 1)], axis=1)
+    rref = np.asarray(GF2(aug).row_reduce(), dtype=np.uint8)
+
+    coefficients = rref[:, :cols]
+    if np.any((~np.any(coefficients, axis=1)) & (rref[:, cols] == 1)):
+        raise ValueError("GF(2) system is inconsistent")
+
+    solution = np.zeros(cols, dtype=np.uint8)
+    for row in range(rows):
+        pivot = np.flatnonzero(coefficients[row])
+        if len(pivot):
+            solution[int(pivot[0])] = rref[row, cols]
+    return solution

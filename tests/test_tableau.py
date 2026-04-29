@@ -13,12 +13,6 @@ def test_zero_state_shapes() -> None:
     assert tableau.xs.shape == (6, 3)
     assert tableau.zs.shape == (6, 3)
     assert len(tableau.phases) == 6
-    assert tableau.destabilizer_xs.shape == (3, 3)
-    assert tableau.destabilizer_zs.shape == (3, 3)
-    assert tableau.stabilizer_xs.shape == (3, 3)
-    assert tableau.stabilizer_zs.shape == (3, 3)
-    assert len(tableau.destabilizer_phases) == 3
-    assert len(tableau.stabilizer_phases) == 3
 
 
 def test_zero_state_destabilizers_and_stabilizers() -> None:
@@ -29,13 +23,6 @@ def test_zero_state_destabilizers_and_stabilizers() -> None:
     np.testing.assert_array_equal(tableau.xs[3:], np.zeros((3, 3), dtype=np.uint8))
     np.testing.assert_array_equal(tableau.zs[3:], np.eye(3, dtype=np.uint8))
     assert tableau.phases == [false] * 6
-
-    np.testing.assert_array_equal(tableau.destabilizer_xs, np.eye(3, dtype=np.uint8))
-    np.testing.assert_array_equal(tableau.destabilizer_zs, np.zeros((3, 3), dtype=np.uint8))
-    np.testing.assert_array_equal(tableau.stabilizer_xs, np.zeros((3, 3), dtype=np.uint8))
-    np.testing.assert_array_equal(tableau.stabilizer_zs, np.eye(3, dtype=np.uint8))
-    assert tableau.destabilizer_phases == [false] * 3
-    assert tableau.stabilizer_phases == [false] * 3
 
 
 def test_zero_state_satisfies_canonical_commutation() -> None:
@@ -62,10 +49,10 @@ def test_from_stabilizers_builds_dual_destabilizers() -> None:
     )
 
     np.testing.assert_array_equal(
-        tableau.destabilizer_xs,
+        tableau.xs[:2],
         np.zeros((2, 2), dtype=np.uint8),
     )
-    np.testing.assert_array_equal(tableau.destabilizer_zs, np.eye(2, dtype=np.uint8))
+    np.testing.assert_array_equal(tableau.zs[:2], np.eye(2, dtype=np.uint8))
     assert tableau.satisfy_canonical_commutation()
 
 
@@ -77,8 +64,25 @@ def test_from_stabilizers_preserves_symbolic_phases() -> None:
         phases=[phase],
     )
 
-    assert tableau.destabilizer_phases == [false]
-    assert tableau.stabilizer_phases == [phase]
+    assert tableau.phases[:1] == [false]
+    assert tableau.phases[1:] == [phase]
+
+
+def test_canonical_form_ignores_stabilizer_basis() -> None:
+    tableau = SymbolicTableau.zero_state(2)
+    equivalent = SymbolicTableau.zero_state(2)
+
+    equivalent.multiply_row(target=2, source=3)
+
+    assert equivalent.canonical_form == tableau.canonical_form
+
+
+def test_canonical_form_equality_ignores_phases() -> None:
+    left = SymbolicTableau.zero_state(1)
+    right = SymbolicTableau.zero_state(1)
+    right.phases[1] = Symbol("m0", boolean=True)
+
+    assert left.canonical_form == right.canonical_form
 
 
 def test_multiply_row_updates_support() -> None:
@@ -125,7 +129,7 @@ def test_multiply_row_rejects_anticommuting_rows() -> None:
 
 def test_detects_broken_canonical_commutation() -> None:
     tableau = SymbolicTableau.zero_state(2)
-    tableau.stabilizer_zs[0, 0] = 0
+    tableau.zs[2, 0] = 0
 
     assert not tableau.satisfy_canonical_commutation()
 

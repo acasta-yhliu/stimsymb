@@ -86,6 +86,13 @@ through their local Pauli maps.
 - SHIFT_COORDS
 - TICK
 
+### Noise And Errors
+
+- I_ERROR
+- X_ERROR
+- Y_ERROR
+- Z_ERROR
+
 ## Unsupported
 
 ### Multi-Pauli Unitaries
@@ -108,10 +115,6 @@ through their local Pauli maps.
 - ELSE_CORRELATED_ERROR
 - HERALDED_ERASE
 - HERALDED_PAULI_CHANNEL_1
-- I_ERROR
 - II_ERROR
 - PAULI_CHANNEL_1
 - PAULI_CHANNEL_2
-- X_ERROR
-- Y_ERROR
-- Z_ERROR

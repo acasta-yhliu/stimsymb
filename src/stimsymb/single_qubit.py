@@ -32,6 +32,7 @@ SINGLE_QUBIT_MEASUREMENTS = tuple(
         )
     )
 )
+SINGLE_QUBIT_ERRORS = ("I_ERROR", "X_ERROR", "Y_ERROR", "Z_ERROR")
 _SINGLE_QUBIT_MEASUREMENT_BASIS = {
     "M": "Z",
     "MR": "Z",
@@ -62,9 +63,11 @@ _SINGLE_QUBIT_MEASUREMENT_RESET_CORRECTIONS = {
 
 __all__ = [
     "SINGLE_QUBIT_GATES",
+    "SINGLE_QUBIT_ERRORS",
     "SINGLE_QUBIT_MEASUREMENTS",
     "SingleQubitLocalPauliMap",
     "apply_conditional_single_qubit_pauli",
+    "apply_single_qubit_error",
     "apply_single_qubit_gate",
     "apply_single_qubit_measurement_maybe_reset",
 ]
@@ -254,6 +257,25 @@ def apply_single_qubit_measurement_maybe_reset(
             result,
         )
     return result
+
+
+def apply_single_qubit_error(
+    tableau: SymbolicTableau,
+    gate_name: str,
+    qubit: int,
+    condition: Boolean,
+) -> None:
+    """Apply a single-qubit Pauli error conditioned on a symbolic Boolean."""
+    if gate_name not in SINGLE_QUBIT_ERRORS:
+        raise NotImplementedError(f"unsupported single-qubit error gate: {gate_name}")
+    if gate_name == "I_ERROR":
+        return
+    apply_conditional_single_qubit_pauli(
+        tableau,
+        gate_name.removesuffix("_ERROR"),
+        qubit,
+        condition,
+    )
 
 
 def apply_conditional_single_qubit_pauli(

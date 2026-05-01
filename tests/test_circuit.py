@@ -233,7 +233,7 @@ def test_execute_records_deterministic_measurement(circuit: str, basis: str) -> 
 
     execute(state, stim.Circuit(circuit))
 
-    assert state.measurements == [false]
+    assert state.measurements.recorded == [false]
     assert state.tableau.phases[state.tableau.num_qubits :] == [false]
     assert state.tableau.satisfy_canonical_commutation()
 
@@ -243,9 +243,9 @@ def test_execute_records_symbolic_nondeterministic_measurement() -> None:
 
     execute(state, stim.Circuit("H 0\nM 0"))
 
-    assert str(state.measurements[0]) == "m0"
-    assert state.distribution == {state.measurements[0]: 0.5}
-    assert state.tableau.phases[state.tableau.num_qubits :] == state.measurements
+    assert str(state.measurements.recorded[0]) == "m0"
+    assert state.measurements.distribution == {state.measurements.recorded[0]: 0.5}
+    assert state.tableau.phases[state.tableau.num_qubits :] == state.measurements.recorded
     assert state.tableau.satisfy_canonical_commutation()
 
 
@@ -254,8 +254,8 @@ def test_execute_deterministic_measurement_does_not_add_distribution() -> None:
 
     execute(state, stim.Circuit("M 0"))
 
-    assert state.measurements == [false]
-    assert state.distribution == {}
+    assert state.measurements.recorded == [false]
+    assert state.measurements.distribution == {}
 
 
 def test_execute_noisy_deterministic_measurement_introduces_latent_error_symbol() -> None:
@@ -263,9 +263,11 @@ def test_execute_noisy_deterministic_measurement_introduces_latent_error_symbol(
 
     execute(state, stim.Circuit("M(0.125) 0"))
 
-    assert state.measurements == [Symbol("l0", boolean=True)]
-    assert state.latent_symbols == [Symbol("l0", boolean=True)]
-    assert state.distribution == {Symbol("l0", boolean=True): 0.125}
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.mechanism == [Symbol("e0_0", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
 
 
 def test_execute_noisy_symbolic_measurement_tracks_outcome_and_error_symbols() -> None:
@@ -273,49 +275,73 @@ def test_execute_noisy_symbolic_measurement_tracks_outcome_and_error_symbols() -
 
     execute(state, stim.Circuit("H 0\nM(0.125) 0"))
 
-    assert state.measurements == [Xor(Symbol("l0", boolean=True), Symbol("m0", boolean=True))]
-    assert state.latent_symbols == [Symbol("l0", boolean=True)]
-    assert state.distribution == {
-        Symbol("m0", boolean=True): 0.5,
-        Symbol("l0", boolean=True): 0.125,
-    }
+    assert state.measurements.recorded == [Xor(Symbol("e1_0", boolean=True), Symbol("m0", boolean=True))]
+    assert state.errors.events == [Symbol("e1_0", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e1_0", boolean=True)]
+    assert state.measurements.distribution == {Symbol("m0", boolean=True): 0.5}
+    assert state.errors.distribution == {Symbol("e1_0", boolean=True): 0.125}
+
+
+def test_execute_zero_probability_measurement_error_still_records_symbol() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("M(0) 0"))
+
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.0}
+
+
+def test_execute_unit_probability_measurement_error_still_records_symbol() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("M(1) 0"))
+
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 1.0}
 
 
 @pytest.mark.parametrize(
-    "circuit",
-    ["R 0", "H 0\nRX 0", "H 0\nS 0\nRY 0"],
+    ("circuit", "reset_instruction_id"),
+    [("R 0", 0), ("H 0\nRX 0", 1), ("H 0\nS 0\nRY 0", 2)],
 )
-def test_execute_records_deterministic_reset_as_latent_result(circuit: str) -> None:
+def test_execute_records_deterministic_reset_as_latent_result(
+    circuit: str,
+    reset_instruction_id: int,
+) -> None:
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
 
     execute(state, stim.Circuit(circuit))
 
-    assert state.measurements == []
-    assert state.latent_symbols == [false]
-    assert state.distribution == {}
+    assert state.measurements.recorded == []
+    assert state.measurements.latent == [false]
+    assert state.measurements.distribution == {}
     assert state.tableau.satisfy_canonical_commutation()
 
 
 @pytest.mark.parametrize(
-    ("circuit", "final_measurement"),
+    ("circuit", "final_measurement", "reset_instruction_id"),
     [
-        ("H 0\nR 0", "M"),
-        ("RX 0", "MX"),
-        ("RY 0", "MY"),
+        ("H 0\nR 0", "M", 1),
+        ("RX 0", "MX", 0),
+        ("RY 0", "MY", 0),
     ],
 )
 def test_execute_symbolic_reset_uses_latent_symbol_and_prepares_plus_eigenstate(
     circuit: str,
     final_measurement: str,
+    reset_instruction_id: int,
 ) -> None:
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
 
     execute(state, stim.Circuit(f"{circuit}\n{final_measurement} 0"))
 
-    assert len(state.latent_symbols) == 1
-    assert str(state.latent_symbols[0]) == "l0"
-    assert state.measurements == [false]
-    assert state.distribution == {state.latent_symbols[0]: 0.5}
+    assert state.measurements.latent == [Symbol(f"l{reset_instruction_id}_0", boolean=True)]
+    assert state.measurements.recorded == [false]
+    assert state.measurements.distribution == {Symbol(f"l{reset_instruction_id}_0", boolean=True): 0.5}
     assert state.tableau.satisfy_canonical_commutation()
 
 
@@ -337,9 +363,9 @@ def test_execute_measurement_reset_matches_prepared_plus_eigenstate(
     execute(state, stim.Circuit(circuit))
     execute(expected, stim.Circuit(expected_prep))
 
-    assert len(state.measurements) == 1
-    assert state.measurements == [false]
-    assert state.distribution == {}
+    assert len(state.measurements.recorded) == 1
+    assert state.measurements.recorded == [false]
+    assert state.measurements.distribution == {}
     np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
     np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
     assert state.tableau.phases == expected.tableau.phases
@@ -353,13 +379,83 @@ def test_execute_noisy_measurement_reset_keeps_reset_fidelity() -> None:
     execute(state, stim.Circuit("MR(0.125) 0"))
     execute(expected, stim.Circuit(""))
 
-    assert state.measurements == [Symbol("l0", boolean=True)]
-    assert state.latent_symbols == [Symbol("l0", boolean=True)]
-    assert state.distribution == {Symbol("l0", boolean=True): 0.125}
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
     np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
     np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
     assert state.tableau.phases == expected.tableau.phases
     assert state.tableau.satisfy_canonical_commutation()
+
+
+def test_execute_zero_probability_single_qubit_error_still_records_symbol() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("X_ERROR(0) 0\nM 0"))
+
+    assert state.errors.events == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0_X", boolean=True): 0.0}
+    assert state.measurements.recorded == [Symbol("e0_0_X", boolean=True)]
+
+
+def test_execute_unit_probability_single_qubit_error_still_records_symbol() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("Y_ERROR(1) 0\nM 0"))
+
+    assert state.errors.events == [Symbol("e0_0_Y", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0_Y", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0_Y", boolean=True): 1.0}
+    assert state.measurements.recorded == [Symbol("e0_0_Y", boolean=True)]
+
+
+def test_execute_symbolic_single_qubit_error_records_error_symbol_and_flips_measurement() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("X_ERROR(0.125) 0\nM 0"))
+
+    assert state.errors.events == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.mechanism == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0_X", boolean=True): 0.125}
+    assert state.measurements.recorded == [Symbol("e0_0_X", boolean=True)]
+
+
+def test_execute_multi_target_single_qubit_error_uses_distinct_symbols() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(state, stim.Circuit("X_ERROR(0.125) 0 1"))
+
+    assert state.errors.events == [
+        Symbol("e0_0_X", boolean=True),
+        Symbol("e0_1_X", boolean=True),
+    ]
+    assert state.errors.all_symbols == [
+        Symbol("e0_0_X", boolean=True),
+        Symbol("e0_1_X", boolean=True),
+    ]
+    assert state.errors.distribution == {
+        Symbol("e0_0_X", boolean=True): 0.125,
+        Symbol("e0_1_X", boolean=True): 0.125,
+    }
+
+
+def test_execute_identity_error_records_event_without_changing_tableau() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+    xs = state.tableau.xs.copy()
+    zs = state.tableau.zs.copy()
+    phases = state.tableau.phases.copy()
+
+    execute(state, stim.Circuit("I_ERROR(0.125) 0"))
+
+    assert state.errors.events == [Symbol("e0_0_I", boolean=True)]
+    assert state.errors.all_symbols == [Symbol("e0_0_I", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0_I", boolean=True): 0.125}
+    np.testing.assert_array_equal(state.tableau.xs, xs)
+    np.testing.assert_array_equal(state.tableau.zs, zs)
+    assert state.tableau.phases == phases
 
 
 @pytest.mark.parametrize(
@@ -380,9 +476,9 @@ def test_execute_symbolic_measurement_reset_records_result_and_resets_state(
     execute(state, stim.Circuit(circuit))
     execute(expected, stim.Circuit(expected_prep))
 
-    assert len(state.measurements) == 1
-    assert str(state.measurements[0]) == "m0"
-    assert state.distribution == {state.measurements[0]: 0.5}
+    assert len(state.measurements.recorded) == 1
+    assert str(state.measurements.recorded[0]) == "m0"
+    assert state.measurements.distribution == {state.measurements.recorded[0]: 0.5}
     np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
     np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
     assert state.tableau.phases == expected.tableau.phases
@@ -397,7 +493,7 @@ def test_execute_records_mpad_without_changing_tableau() -> None:
 
     execute(state, stim.Circuit("MPAD 0 1 0"))
 
-    assert state.measurements == [false, true, false]
+    assert state.measurements.recorded == [false, true, false]
     np.testing.assert_array_equal(state.tableau.xs, xs)
     np.testing.assert_array_equal(state.tableau.zs, zs)
     assert state.tableau.phases == phases
@@ -420,7 +516,7 @@ def test_execute_ignores_metadata_instructions() -> None:
         ),
     )
 
-    assert state.measurements == []
+    assert state.measurements.recorded == []
     np.testing.assert_array_equal(state.tableau.xs, xs)
     np.testing.assert_array_equal(state.tableau.zs, zs)
     assert state.tableau.phases == phases
@@ -441,10 +537,10 @@ def test_execute_records_detector_expressions() -> None:
         ),
     )
 
-    assert state.measurements[0] == false
-    assert str(state.measurements[1]) == "m1"
+    assert state.measurements.recorded[0] == false
+    assert str(state.measurements.recorded[1]) == "m1"
     assert len(state.detectors) == 1
-    assert state.detectors[0].expression == state.measurements[1]
+    assert state.detectors[0].expression == state.measurements.recorded[1]
     assert state.detectors[0].args == (1.5, 2.0, 3.0)
 
 
@@ -464,9 +560,9 @@ def test_execute_records_observable_expressions() -> None:
         ),
     )
 
-    assert str(state.measurements[0]) == "m0"
+    assert str(state.measurements.recorded[0]) == "m0"
     assert len(state.observables) == 2
-    assert state.observables[0].expression == state.measurements[0]
+    assert state.observables[0].expression == state.measurements.recorded[0]
     assert state.observables[0].args == (3.0,)
     assert state.observables[1].expression == true
     assert state.observables[1].args == (3.0,)
@@ -495,7 +591,7 @@ def test_measure_returns_deterministic_result_without_symbol(
     )
 
     assert result == false
-    assert state.measurements == []
+    assert state.measurements.recorded == []
 
 
 @pytest.mark.parametrize("gate_name", ["MX", "MY", "M"])

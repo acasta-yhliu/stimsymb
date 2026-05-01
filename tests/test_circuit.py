@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import stim
 from sympy import Symbol
-from sympy.logic.boolalg import Boolean, false, true
+from sympy.logic.boolalg import Boolean, Xor, false, true
 
 from stimsymb.double_qubit import DOUBLE_QUBIT_GATES
 from stimsymb.execution import execute, SymbolicState
@@ -258,6 +258,29 @@ def test_execute_deterministic_measurement_does_not_add_distribution() -> None:
     assert state.distribution == {}
 
 
+def test_execute_noisy_deterministic_measurement_introduces_latent_error_symbol() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("M(0.125) 0"))
+
+    assert state.measurements == [Symbol("l0", boolean=True)]
+    assert state.latent_symbols == [Symbol("l0", boolean=True)]
+    assert state.distribution == {Symbol("l0", boolean=True): 0.125}
+
+
+def test_execute_noisy_symbolic_measurement_tracks_outcome_and_error_symbols() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("H 0\nM(0.125) 0"))
+
+    assert state.measurements == [Xor(Symbol("l0", boolean=True), Symbol("m0", boolean=True))]
+    assert state.latent_symbols == [Symbol("l0", boolean=True)]
+    assert state.distribution == {
+        Symbol("m0", boolean=True): 0.5,
+        Symbol("l0", boolean=True): 0.125,
+    }
+
+
 @pytest.mark.parametrize(
     "circuit",
     ["R 0", "H 0\nRX 0", "H 0\nS 0\nRY 0"],
@@ -317,6 +340,22 @@ def test_execute_measurement_reset_matches_prepared_plus_eigenstate(
     assert len(state.measurements) == 1
     assert state.measurements == [false]
     assert state.distribution == {}
+    np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
+    np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
+    assert state.tableau.phases == expected.tableau.phases
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+def test_execute_noisy_measurement_reset_keeps_reset_fidelity() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+    expected = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("MR(0.125) 0"))
+    execute(expected, stim.Circuit(""))
+
+    assert state.measurements == [Symbol("l0", boolean=True)]
+    assert state.latent_symbols == [Symbol("l0", boolean=True)]
+    assert state.distribution == {Symbol("l0", boolean=True): 0.125}
     np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
     np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
     assert state.tableau.phases == expected.tableau.phases

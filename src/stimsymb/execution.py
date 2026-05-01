@@ -79,6 +79,11 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
             continue
 
         if instruction.name in SINGLE_QUBIT_MEASUREMENTS:
+            gate_args = instruction.gate_args_copy()
+            if len(gate_args) > 1:
+                raise NotImplementedError(
+                    "single-qubit measurements support at most one noise argument"
+                )
             for target in instruction.targets_copy():
                 qubit = target.qubit_value
                 if qubit is None:
@@ -98,11 +103,19 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
                     qubit,
                     result_symbol,
                 )
-                # Only fresh nondeterministic outcomes inherit the default
-                # Bernoulli distribution; deterministic results return an
-                # existing expression or literal instead.
+                # Fresh nondeterministic measurement outcomes inherit the
+                # default Bernoulli distribution before any report noise is
+                # applied to the visible bit.
                 if result == result_symbol:
                     _record_distribution(state, result, p_true=0.5)
+                # Stim's measurement noise flips only the reported bit. For
+                # demolition measurements, the reset still uses the true
+                # outcome already consumed by the tableau helper.
+                result = _apply_measurement_noise(
+                    state,
+                    result,
+                    gate_args[0] if gate_args else None,
+                )
                 # Resets stash their outcomes internally, while measurements
                 # expose them through Stim's measurement record.
                 if is_latent:
@@ -172,6 +185,25 @@ def _record_distribution(state: SymbolicState, symbol: Boolean, p_true: float) -
     """Record the Bernoulli distribution for a newly introduced symbol."""
     if symbol not in {false, true}:
         state.distribution[symbol] = p_true
+
+
+def _apply_measurement_noise(
+    state: SymbolicState,
+    result: Boolean,
+    error_probability: float | None,
+) -> Boolean:
+    """Flip a reported measurement result using a fresh latent error symbol."""
+    if error_probability is None or error_probability == 0:
+        return result
+    if error_probability == 1:
+        return Xor(result, true)
+    if not 0 <= error_probability <= 1:
+        raise ValueError("measurement noise probability must be in [0, 1]")
+
+    error_symbol = _latent_symbol(len(state.latent_symbols))
+    _record_distribution(state, error_symbol, p_true=error_probability)
+    state.latent_symbols.append(error_symbol)
+    return Xor(result, error_symbol)
 
 
 def _measurement_symbol(measurement_id: int) -> Boolean:

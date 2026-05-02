@@ -265,8 +265,8 @@ def test_execute_noisy_deterministic_measurement_introduces_latent_error_symbol(
 
     assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
     assert state.errors.events == [Symbol("e0_0", boolean=True)]
-    assert state.errors.mechanism == [Symbol("e0_0", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.mechanisms == []
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
     assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
 
 
@@ -277,7 +277,7 @@ def test_execute_noisy_symbolic_measurement_tracks_outcome_and_error_symbols() -
 
     assert state.measurements.recorded == [Xor(Symbol("e1_0", boolean=True), Symbol("m0", boolean=True))]
     assert state.errors.events == [Symbol("e1_0", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e1_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e1_0", boolean=True)]
     assert state.measurements.distribution == {Symbol("m0", boolean=True): 0.5}
     assert state.errors.distribution == {Symbol("e1_0", boolean=True): 0.125}
 
@@ -289,7 +289,7 @@ def test_execute_zero_probability_measurement_error_still_records_symbol() -> No
 
     assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
     assert state.errors.events == [Symbol("e0_0", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
     assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.0}
 
 
@@ -300,7 +300,7 @@ def test_execute_unit_probability_measurement_error_still_records_symbol() -> No
 
     assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
     assert state.errors.events == [Symbol("e0_0", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
     assert state.errors.distribution == {Symbol("e0_0", boolean=True): 1.0}
 
 
@@ -381,7 +381,7 @@ def test_execute_noisy_measurement_reset_keeps_reset_fidelity() -> None:
 
     assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
     assert state.errors.events == [Symbol("e0_0", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
     assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
     np.testing.assert_array_equal(state.tableau.xs, expected.tableau.xs)
     np.testing.assert_array_equal(state.tableau.zs, expected.tableau.zs)
@@ -394,10 +394,10 @@ def test_execute_zero_probability_single_qubit_error_still_records_symbol() -> N
 
     execute(state, stim.Circuit("X_ERROR(0) 0\nM 0"))
 
-    assert state.errors.events == [Symbol("e0_0_X", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0_X", boolean=True)]
-    assert state.errors.distribution == {Symbol("e0_0_X", boolean=True): 0.0}
-    assert state.measurements.recorded == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.0}
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
 
 
 def test_execute_unit_probability_single_qubit_error_still_records_symbol() -> None:
@@ -405,10 +405,10 @@ def test_execute_unit_probability_single_qubit_error_still_records_symbol() -> N
 
     execute(state, stim.Circuit("Y_ERROR(1) 0\nM 0"))
 
-    assert state.errors.events == [Symbol("e0_0_Y", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0_Y", boolean=True)]
-    assert state.errors.distribution == {Symbol("e0_0_Y", boolean=True): 1.0}
-    assert state.measurements.recorded == [Symbol("e0_0_Y", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 1.0}
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
 
 
 def test_execute_symbolic_single_qubit_error_records_error_symbol_and_flips_measurement() -> None:
@@ -416,11 +416,11 @@ def test_execute_symbolic_single_qubit_error_records_error_symbol_and_flips_meas
 
     execute(state, stim.Circuit("X_ERROR(0.125) 0\nM 0"))
 
-    assert state.errors.events == [Symbol("e0_0_X", boolean=True)]
-    assert state.errors.mechanism == [Symbol("e0_0_X", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0_X", boolean=True)]
-    assert state.errors.distribution == {Symbol("e0_0_X", boolean=True): 0.125}
-    assert state.measurements.recorded == [Symbol("e0_0_X", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.mechanisms == []
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
 
 
 def test_execute_multi_target_single_qubit_error_uses_distinct_symbols() -> None:
@@ -429,16 +429,16 @@ def test_execute_multi_target_single_qubit_error_uses_distinct_symbols() -> None
     execute(state, stim.Circuit("X_ERROR(0.125) 0 1"))
 
     assert state.errors.events == [
-        Symbol("e0_0_X", boolean=True),
-        Symbol("e0_1_X", boolean=True),
+        Symbol("e0_0", boolean=True),
+        Symbol("e0_1", boolean=True),
     ]
-    assert state.errors.all_symbols == [
-        Symbol("e0_0_X", boolean=True),
-        Symbol("e0_1_X", boolean=True),
+    assert state.errors.defined_symbols == [
+        Symbol("e0_0", boolean=True),
+        Symbol("e0_1", boolean=True),
     ]
     assert state.errors.distribution == {
-        Symbol("e0_0_X", boolean=True): 0.125,
-        Symbol("e0_1_X", boolean=True): 0.125,
+        Symbol("e0_0", boolean=True): 0.125,
+        Symbol("e0_1", boolean=True): 0.125,
     }
 
 
@@ -450,12 +450,105 @@ def test_execute_identity_error_records_event_without_changing_tableau() -> None
 
     execute(state, stim.Circuit("I_ERROR(0.125) 0"))
 
-    assert state.errors.events == [Symbol("e0_0_I", boolean=True)]
-    assert state.errors.all_symbols == [Symbol("e0_0_I", boolean=True)]
-    assert state.errors.distribution == {Symbol("e0_0_I", boolean=True): 0.125}
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.defined_symbols == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
     np.testing.assert_array_equal(state.tableau.xs, xs)
     np.testing.assert_array_equal(state.tableau.zs, zs)
     assert state.tableau.phases == phases
+
+
+def test_execute_pauli_channel_1_records_event_and_mechanisms() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0\nM 0"))
+
+    event = Symbol("e0_0", boolean=True)
+    x = Symbol("e0_0_X", boolean=True)
+    y = Symbol("e0_0_Y", boolean=True)
+    z = Symbol("e0_0_Z", boolean=True)
+    assert state.errors.events == [event]
+    assert state.errors.mechanisms == [x, y, z]
+    assert state.errors.defined_symbols == [event, x, y, z]
+    assert state.errors.distribution == {event: {x: 0.1, y: 0.2, z: 0.3}}
+    assert state.measurements.recorded == [Xor(x, y)]
+
+
+def test_execute_depolarize1_uses_symmetric_pauli_channel() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("DEPOLARIZE1(0.3) 0\nM 0"))
+
+    event = Symbol("e0_0", boolean=True)
+    x = Symbol("e0_0_X", boolean=True)
+    y = Symbol("e0_0_Y", boolean=True)
+    z = Symbol("e0_0_Z", boolean=True)
+    assert state.errors.events == [event]
+    assert state.errors.mechanisms == [x, y, z]
+    assert state.errors.distribution[event] == {
+        x: pytest.approx(0.1),
+        y: pytest.approx(0.1),
+        z: pytest.approx(0.1),
+    }
+    assert state.measurements.recorded == [Xor(x, y)]
+
+
+def test_execute_multi_target_pauli_channel_uses_distinct_event_symbols() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(state, stim.Circuit("PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 1"))
+
+    assert state.errors.events == [
+        Symbol("e0_0", boolean=True),
+        Symbol("e0_1", boolean=True),
+    ]
+    assert state.errors.mechanisms == [
+        Symbol("e0_0_X", boolean=True),
+        Symbol("e0_0_Y", boolean=True),
+        Symbol("e0_0_Z", boolean=True),
+        Symbol("e0_1_X", boolean=True),
+        Symbol("e0_1_Y", boolean=True),
+        Symbol("e0_1_Z", boolean=True),
+    ]
+
+
+def test_execute_pauli_channel_rejects_probabilities_with_sum_above_one() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    with pytest.raises(ValueError, match="sum to"):
+        execute(state, stim.Circuit("PAULI_CHANNEL_1(0.4, 0.4, 0.4) 0"))
+
+
+def test_execute_heralded_erase_records_herald_and_mechanisms() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("HERALDED_ERASE(0.4) 0\nM 0"))
+
+    event = Symbol("e0_0", boolean=True)
+    x = Symbol("e0_0_X", boolean=True)
+    y = Symbol("e0_0_Y", boolean=True)
+    z = Symbol("e0_0_Z", boolean=True)
+    assert state.errors.events == [event]
+    assert state.errors.mechanisms == [x, y, z]
+    assert state.errors.distribution == {event: {x: 0.1, y: 0.1, z: 0.1}}
+    assert state.measurements.distribution == {event: 0.4}
+    assert state.measurements.recorded == [event, Xor(x, y)]
+
+
+def test_execute_heralded_pauli_channel_records_herald_and_mechanisms() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
+
+    execute(state, stim.Circuit("HERALDED_PAULI_CHANNEL_1(0.1, 0.2, 0.3, 0.4) 0\nM 0"))
+
+    event = Symbol("e0_0", boolean=True)
+    x = Symbol("e0_0_X", boolean=True)
+    y = Symbol("e0_0_Y", boolean=True)
+    z = Symbol("e0_0_Z", boolean=True)
+    assert state.errors.events == [event]
+    assert state.errors.mechanisms == [x, y, z]
+    assert state.errors.distribution == {event: {x: 0.2, y: 0.3, z: 0.4}}
+    assert state.measurements.distribution == {event: 1.0}
+    assert state.measurements.recorded == [event, Xor(x, y)]
 
 
 @pytest.mark.parametrize(

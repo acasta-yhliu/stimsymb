@@ -89,6 +89,10 @@ through their local Pauli maps.
 ### Noise And Errors
 
 - I_ERROR
+- DEPOLARIZE1
+- HERALDED_ERASE
+- HERALDED_PAULI_CHANNEL_1
+- PAULI_CHANNEL_1
 - X_ERROR
 - Y_ERROR
 - Z_ERROR
@@ -109,12 +113,8 @@ through their local Pauli maps.
 
 ### Noise And Errors
 
-- DEPOLARIZE1
 - DEPOLARIZE2
 - E
 - ELSE_CORRELATED_ERROR
-- HERALDED_ERASE
-- HERALDED_PAULI_CHANNEL_1
 - II_ERROR
-- PAULI_CHANNEL_1
 - PAULI_CHANNEL_2

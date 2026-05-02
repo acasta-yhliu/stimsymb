@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from functools import cache
 from dataclasses import dataclass
+from functools import cache
+from typing import cast
 
 import numpy as np
 import stim
 from numpy.typing import NDArray
+from sympy import Symbol
 from sympy.logic.boolalg import Boolean, Xor, false, true
 
 from stimsymb.tableau import SymbolicTableau
@@ -32,7 +34,16 @@ SINGLE_QUBIT_MEASUREMENTS = tuple(
         )
     )
 )
-SINGLE_QUBIT_ERRORS = ("I_ERROR", "X_ERROR", "Y_ERROR", "Z_ERROR")
+SINGLE_QUBIT_ERRORS = (
+    "DEPOLARIZE1",
+    "HERALDED_ERASE",
+    "HERALDED_PAULI_CHANNEL_1",
+    "I_ERROR",
+    "PAULI_CHANNEL_1",
+    "X_ERROR",
+    "Y_ERROR",
+    "Z_ERROR",
+)
 _SINGLE_QUBIT_MEASUREMENT_BASIS = {
     "M": "Z",
     "MR": "Z",
@@ -264,18 +275,56 @@ def apply_single_qubit_error(
     gate_name: str,
     qubit: int,
     condition: Boolean,
-) -> None:
+    probabilities: tuple[float, float, float, float] | None = None,
+) -> dict[Boolean, float] | None:
     """Apply a single-qubit Pauli error conditioned on a symbolic Boolean."""
+    if gate_name in {
+        "DEPOLARIZE1",
+        "HERALDED_ERASE",
+        "HERALDED_PAULI_CHANNEL_1",
+        "PAULI_CHANNEL_1",
+    }:
+        if probabilities is None:
+            raise ValueError("Pauli channel probabilities must be provided")
+        return _apply_single_qubit_pauli_channel(
+            tableau,
+            qubit,
+            condition,
+            probabilities,
+        )
     if gate_name not in SINGLE_QUBIT_ERRORS:
         raise NotImplementedError(f"unsupported single-qubit error gate: {gate_name}")
     if gate_name == "I_ERROR":
-        return
+        return None
     apply_conditional_single_qubit_pauli(
         tableau,
         gate_name.removesuffix("_ERROR"),
         qubit,
         condition,
     )
+    return None
+
+
+def _apply_single_qubit_pauli_channel(
+    tableau: SymbolicTableau,
+    qubit: int,
+    condition: Boolean,
+    probabilities: tuple[float, float, float, float],
+) -> dict[Boolean, float]:
+    """Apply a categorical X/Y/Z Pauli channel and return its mechanism distribution."""
+    _, *pauli_probabilities = probabilities
+    mechanisms: dict[Boolean, float] = {}
+    for pauli_gate, probability in zip(("X", "Y", "Z"), pauli_probabilities, strict=True):
+        # Mechanism symbols are named by extending the event condition name.
+        mechanism = cast(Boolean, Symbol(f"{condition}_{pauli_gate}", boolean=True))
+        mechanisms[mechanism] = probability
+        apply_conditional_single_qubit_pauli(
+            tableau,
+            pauli_gate,
+            qubit,
+            mechanism,
+        )
+    return mechanisms
 
 
 def apply_conditional_single_qubit_pauli(

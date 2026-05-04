@@ -10,6 +10,8 @@ from sympy.logic.boolalg import Boolean, Xor, false, true
 
 from stimsymb.double_qubit import (
     DOUBLE_QUBIT_GATES,
+    DOUBLE_QUBIT_MEASUREMENTS,
+    apply_double_qubit_measurement,
     apply_double_qubit_gate,
 )
 from stimsymb.single_qubit import (
@@ -164,6 +166,40 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
                     state.measurements.latent.append(result)
                 else:
                     state.measurements.recorded.append(result)
+            continue
+
+        if instruction.name in DOUBLE_QUBIT_MEASUREMENTS:
+            gate_args = instruction.gate_args_copy()
+            targets = instruction.targets_copy()
+            for pair_index, (first_target, second_target) in enumerate(
+                zip(targets[0::2], targets[1::2], strict=True)
+            ):
+                first_qubit = first_target.qubit_value
+                second_qubit = second_target.qubit_value
+                assert first_qubit is not None
+                assert second_qubit is not None
+                # Two-qubit measurements always append to the visible record.
+                result_symbol = _symbol("m", len(state.measurements.recorded))
+                result = apply_double_qubit_measurement(
+                    state.tableau,
+                    instruction.name,
+                    first_qubit,
+                    second_qubit,
+                    result_symbol,
+                )
+                # Fresh nondeterministic outcomes are primitive Bernoulli bits.
+                if result == result_symbol and result not in {false, true}:
+                    state.measurements.distribution[result] = 0.5
+                # Stim's measurement noise flips only the reported bit.
+                if gate_args:
+                    result = _apply_measurement_noise(
+                        state,
+                        instruction_id,
+                        pair_index,
+                        result,
+                        gate_args[0],
+                    )
+                state.measurements.recorded.append(result)
             continue
 
         if instruction.name in SINGLE_QUBIT_ERRORS:

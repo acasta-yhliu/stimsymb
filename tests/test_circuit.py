@@ -6,7 +6,10 @@ import stim
 from sympy import Symbol
 from sympy.logic.boolalg import Boolean, Xor, false, true
 
-from stimsymb.double_qubit import DOUBLE_QUBIT_GATES
+from stimsymb.double_qubit import (
+    DOUBLE_QUBIT_GATES,
+    apply_double_qubit_measurement,
+)
 from stimsymb.execution import execute, SymbolicState
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
@@ -549,6 +552,52 @@ def test_execute_symbolic_measurement_reset_records_result_and_resets_state(
     assert state.tableau.satisfy_canonical_commutation()
 
 
+@pytest.mark.parametrize(
+    ("circuit", "measurement"),
+    [
+        ("", "MZZ 0 1"),
+        ("H 0\nH 1", "MXX 0 1"),
+        ("H 0\nS 0\nH 0\nH 1\nS 1\nH 1", "MYY 0 1"),
+    ],
+)
+def test_execute_records_deterministic_double_qubit_measurement(
+    circuit: str,
+    measurement: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(
+        state, stim.Circuit(f"{circuit}\n{measurement}" if circuit else measurement)
+    )
+
+    assert state.measurements.recorded == [false]
+    assert state.measurements.distribution == {}
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+@pytest.mark.parametrize("measurement", ["MXX 0 1", "MYY 0 1", "MZZ 0 1"])
+def test_execute_symbolic_double_qubit_measurement_introduces_symbol(
+    measurement: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(state, stim.Circuit(f"H 0\n{measurement}"))
+
+    assert str(state.measurements.recorded[0]) == "m0"
+    assert state.measurements.distribution == {state.measurements.recorded[0]: 0.5}
+    assert state.tableau.satisfy_canonical_commutation()
+
+
+def test_execute_noisy_double_qubit_measurement_tracks_error_symbol() -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+
+    execute(state, stim.Circuit("MZZ(0.125) 0 1"))
+
+    assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
+    assert state.errors.events == [Symbol("e0_0", boolean=True)]
+    assert state.errors.distribution == {Symbol("e0_0", boolean=True): 0.125}
+
+
 def test_execute_records_mpad_without_changing_tableau() -> None:
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
     xs = state.tableau.xs.copy()
@@ -669,6 +718,51 @@ def test_measure_introduces_symbol_for_nondeterministic_result(gate_name: str) -
         state.tableau,
         gate_name,
         0,
+        result_symbol=Symbol("m0", boolean=True),
+    )
+
+    assert str(result) == "m0"
+
+
+@pytest.mark.parametrize(
+    ("circuit", "gate_name"),
+    [
+        ("", "MZZ"),
+        ("H 0\nH 1", "MXX"),
+        ("H 0\nS 0\nH 0\nH 1\nS 1\nH 1", "MYY"),
+    ],
+)
+def test_double_qubit_measurement_returns_deterministic_result_without_symbol(
+    circuit: str,
+    gate_name: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+    if circuit:
+        execute(state, stim.Circuit(circuit))
+
+    result = apply_double_qubit_measurement(
+        state.tableau,
+        gate_name,
+        0,
+        1,
+        result_symbol=false,
+    )
+
+    assert result == false
+
+
+@pytest.mark.parametrize("gate_name", ["MXX", "MYY", "MZZ"])
+def test_double_qubit_measurement_introduces_symbol_for_nondeterministic_result(
+    gate_name: str,
+) -> None:
+    state = SymbolicState(tableau=SymbolicTableau.zero_state(2))
+    execute(state, stim.Circuit("H 0"))
+
+    result = apply_double_qubit_measurement(
+        state.tableau,
+        gate_name,
+        0,
+        1,
         result_symbol=Symbol("m0", boolean=True),
     )
 

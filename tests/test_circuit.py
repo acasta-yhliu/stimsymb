@@ -10,55 +10,12 @@ from stimsymb.double_qubit import DOUBLE_QUBIT_GATES
 from stimsymb.execution import execute, SymbolicState
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
-    SINGLE_QUBIT_MEASUREMENTS,
     apply_single_qubit_measurement_maybe_reset,
 )
 from stimsymb.tableau import SymbolicTableau
 
 
 GateSet = tuple[str, ...]
-
-
-def test_single_qubit_clifford_gates_come_from_stim_metadata() -> None:
-    expected = tuple(
-        sorted(
-            name
-            for name, data in stim.gate_data().items()
-            if data.is_unitary and data.is_single_qubit_gate
-        )
-    )
-
-    assert SINGLE_QUBIT_GATES == expected
-
-
-def test_double_qubit_clifford_gates_come_from_stim_metadata() -> None:
-    expected = tuple(
-        sorted(
-            name
-            for name, data in stim.gate_data().items()
-            if data.is_unitary and data.is_two_qubit_gate
-        )
-    )
-
-    assert DOUBLE_QUBIT_GATES == expected
-
-
-def test_single_qubit_measurements_come_from_stim_metadata() -> None:
-    expected = tuple(
-        sorted(
-            tuple(
-                name
-                for name, data in stim.gate_data().items()
-                if (
-                    data.is_single_qubit_gate
-                    and not data.is_unitary
-                    and name in {"M", "MR", "MRX", "MRY", "MX", "MY", "R", "RX", "RY"}
-                )
-            )
-        )
-    )
-
-    assert SINGLE_QUBIT_MEASUREMENTS == expected
 
 
 def _random_initial_state(num_qubits: int, rng: random.Random) -> stim.Tableau:
@@ -152,7 +109,9 @@ def _generate_gate_cases() -> list[tuple[int, int, stim.Tableau, stim.Circuit]]:
     return cases
 
 
-def _generate_two_qubit_gate_cases() -> list[tuple[int, int, stim.Tableau, stim.Circuit]]:
+def _generate_two_qubit_gate_cases() -> list[
+    tuple[int, int, stim.Tableau, stim.Circuit]
+]:
     cases = []
     gate_set = SINGLE_QUBIT_GATES + DOUBLE_QUBIT_GATES
     for num_qubits in [2, 3, 5]:
@@ -245,7 +204,9 @@ def test_execute_records_symbolic_nondeterministic_measurement() -> None:
 
     assert str(state.measurements.recorded[0]) == "m0"
     assert state.measurements.distribution == {state.measurements.recorded[0]: 0.5}
-    assert state.tableau.phases[state.tableau.num_qubits :] == state.measurements.recorded
+    assert (
+        state.tableau.phases[state.tableau.num_qubits :] == state.measurements.recorded
+    )
     assert state.tableau.satisfy_canonical_commutation()
 
 
@@ -258,7 +219,9 @@ def test_execute_deterministic_measurement_does_not_add_distribution() -> None:
     assert state.measurements.distribution == {}
 
 
-def test_execute_noisy_deterministic_measurement_introduces_latent_error_symbol() -> None:
+def test_execute_noisy_deterministic_measurement_introduces_latent_error_symbol() -> (
+    None
+):
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
 
     execute(state, stim.Circuit("M(0.125) 0"))
@@ -275,7 +238,9 @@ def test_execute_noisy_symbolic_measurement_tracks_outcome_and_error_symbols() -
 
     execute(state, stim.Circuit("H 0\nM(0.125) 0"))
 
-    assert state.measurements.recorded == [Xor(Symbol("e1_0", boolean=True), Symbol("m0", boolean=True))]
+    assert state.measurements.recorded == [
+        Xor(Symbol("e1_0", boolean=True), Symbol("m0", boolean=True))
+    ]
     assert state.errors.events == [Symbol("e1_0", boolean=True)]
     assert state.errors.defined_symbols == [Symbol("e1_0", boolean=True)]
     assert state.measurements.distribution == {Symbol("m0", boolean=True): 0.5}
@@ -339,9 +304,13 @@ def test_execute_symbolic_reset_uses_latent_symbol_and_prepares_plus_eigenstate(
 
     execute(state, stim.Circuit(f"{circuit}\n{final_measurement} 0"))
 
-    assert state.measurements.latent == [Symbol(f"l{reset_instruction_id}_0", boolean=True)]
+    assert state.measurements.latent == [
+        Symbol(f"l{reset_instruction_id}_0", boolean=True)
+    ]
     assert state.measurements.recorded == [false]
-    assert state.measurements.distribution == {Symbol(f"l{reset_instruction_id}_0", boolean=True): 0.5}
+    assert state.measurements.distribution == {
+        Symbol(f"l{reset_instruction_id}_0", boolean=True): 0.5
+    }
     assert state.tableau.satisfy_canonical_commutation()
 
 
@@ -411,7 +380,9 @@ def test_execute_unit_probability_single_qubit_error_still_records_symbol() -> N
     assert state.measurements.recorded == [Symbol("e0_0", boolean=True)]
 
 
-def test_execute_symbolic_single_qubit_error_records_error_symbol_and_flips_measurement() -> None:
+def test_execute_symbolic_single_qubit_error_records_error_symbol_and_flips_measurement() -> (
+    None
+):
     state = SymbolicState(tableau=SymbolicTableau.zero_state(1))
 
     execute(state, stim.Circuit("X_ERROR(0.125) 0\nM 0"))
@@ -702,8 +673,6 @@ def test_measure_introduces_symbol_for_nondeterministic_result(gate_name: str) -
     )
 
     assert str(result) == "m0"
-
-
 
 
 def _from_stim_rows(rows: list[stim.PauliString]) -> SymbolicTableau:

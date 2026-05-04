@@ -23,16 +23,16 @@ SINGLE_QUBIT_GATES = tuple(
     )
 )
 
-SINGLE_QUBIT_MEASUREMENTS = tuple(
-    sorted(
-        name
-        for name, data in stim.gate_data().items()
-        if (
-            data.is_single_qubit_gate
-            and not data.is_unitary
-            and name in {"M", "MR", "MRX", "MRY", "MX", "MY", "R", "RX", "RY"}
-        )
-    )
+SINGLE_QUBIT_MEASUREMENTS_RESETS = (
+    "M",
+    "MR",
+    "MRX",
+    "MRY",
+    "MX",
+    "MY",
+    "R",
+    "RX",
+    "RY",
 )
 SINGLE_QUBIT_ERRORS = (
     "DEPOLARIZE1",
@@ -75,7 +75,7 @@ _SINGLE_QUBIT_MEASUREMENT_RESET_CORRECTIONS = {
 __all__ = [
     "SINGLE_QUBIT_GATES",
     "SINGLE_QUBIT_ERRORS",
-    "SINGLE_QUBIT_MEASUREMENTS",
+    "SINGLE_QUBIT_MEASUREMENTS_RESETS",
     "SingleQubitLocalPauliMap",
     "apply_conditional_single_qubit_pauli",
     "apply_single_qubit_error",
@@ -163,7 +163,7 @@ def _apply_single_qubit_measurement(
     """
     if qubit < 0 or qubit >= tableau.num_qubits:
         raise IndexError("qubit index out of range")
-    if gate_name not in SINGLE_QUBIT_MEASUREMENTS:
+    if gate_name not in SINGLE_QUBIT_MEASUREMENTS_RESETS:
         raise NotImplementedError(f"unsupported measurement gate: {gate_name}")
 
     basis = _SINGLE_QUBIT_MEASUREMENT_BASIS[gate_name]
@@ -246,7 +246,7 @@ def apply_single_qubit_measurement_maybe_reset(
     result_symbol: Boolean,
 ) -> Boolean:
     """Apply a single-qubit measurement-like gate, including reset variants."""
-    if gate_name not in SINGLE_QUBIT_MEASUREMENTS:
+    if gate_name not in SINGLE_QUBIT_MEASUREMENTS_RESETS:
         raise NotImplementedError(f"unsupported measurement gate: {gate_name}")
 
     measurement_gate = _SINGLE_QUBIT_MEASUREMENT_RESET_MEASUREMENTS.get(
@@ -314,7 +314,9 @@ def _apply_single_qubit_pauli_channel(
     """Apply a categorical X/Y/Z Pauli channel and return its mechanism distribution."""
     _, *pauli_probabilities = probabilities
     mechanisms: dict[Boolean, float] = {}
-    for pauli_gate, probability in zip(("X", "Y", "Z"), pauli_probabilities, strict=True):
+    for pauli_gate, probability in zip(
+        ("X", "Y", "Z"), pauli_probabilities, strict=True
+    ):
         # Mechanism symbols are named by extending the event condition name.
         mechanism = cast(Boolean, Symbol(f"{condition}_{pauli_gate}", boolean=True))
         mechanisms[mechanism] = probability

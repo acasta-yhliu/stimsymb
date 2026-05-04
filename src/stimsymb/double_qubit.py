@@ -66,7 +66,9 @@ class DoubleQubitLocalPauliMap:
                 entries[index, 4] = out.sign == -1
         return cls(entries)
 
-    def apply(self, tableau: SymbolicTableau, first_qubit: int, second_qubit: int) -> None:
+    def apply(
+        self, tableau: SymbolicTableau, first_qubit: int, second_qubit: int
+    ) -> None:
         """Apply this local Pauli map to two tableau qubit columns."""
         # Compute each row's two-qubit Pauli label in one vectorized pass.
         indices = (

@@ -14,10 +14,18 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "ruff",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [build-system]
 requires = ["uv_build>=0.11.7,<0.12.0"]

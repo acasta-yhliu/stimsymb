@@ -34,8 +34,8 @@ through their local Pauli maps.
 
 ### Measurements
 
-Supported single-qubit measurement instructions are the Stim-native gate names
-currently recognized by `SINGLE_QUBIT_MEASUREMENTS`. `MPAD` is also supported as
+Supported single-qubit measurement instructions are the hardcoded gate names
+listed in `SINGLE_QUBIT_MEASUREMENTS_RESETS`. `MPAD` is also supported as
 measurement-record padding, but it does not act on the tableau.
 
 - M

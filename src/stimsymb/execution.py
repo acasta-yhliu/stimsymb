@@ -15,7 +15,7 @@ from stimsymb.double_qubit import (
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     SINGLE_QUBIT_ERRORS,
-    SINGLE_QUBIT_MEASUREMENTS,
+    SINGLE_QUBIT_MEASUREMENTS_RESETS,
     apply_single_qubit_error,
     apply_single_qubit_gate,
     apply_single_qubit_measurement_maybe_reset,
@@ -117,10 +117,12 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
         if instruction.name == "MPAD":
             for target in instruction.targets_copy():
                 # MPAD appends literal measurement bits without touching qubits.
-                state.measurements.recorded.append(true if target.qubit_value else false)
+                state.measurements.recorded.append(
+                    true if target.qubit_value else false
+                )
             continue
 
-        if instruction.name in SINGLE_QUBIT_MEASUREMENTS:
+        if instruction.name in SINGLE_QUBIT_MEASUREMENTS_RESETS:
             gate_args = instruction.gate_args_copy()
             for target_index, target in enumerate(instruction.targets_copy()):
                 qubit = target.qubit_value
@@ -190,12 +192,17 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
                     # Pauli effects; the event/herald symbol is tracked separately.
                     state.errors.mechanisms.extend(mechanism_distribution)
                     state.errors.distribution[error_symbol] = mechanism_distribution
-                    if instruction.name in {"HERALDED_ERASE", "HERALDED_PAULI_CHANNEL_1"}:
+                    if instruction.name in {
+                        "HERALDED_ERASE",
+                        "HERALDED_PAULI_CHANNEL_1",
+                    }:
                         # Stim reports a herald bit when any heralded branch,
                         # including heralded identity, occurs.
                         assert probabilities is not None
                         state.measurements.recorded.append(error_symbol)
-                        state.measurements.distribution[error_symbol] = sum(probabilities)
+                        state.measurements.distribution[error_symbol] = sum(
+                            probabilities
+                        )
             continue
 
         if instruction.name in SINGLE_QUBIT_GATES:

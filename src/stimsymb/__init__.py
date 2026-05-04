@@ -13,7 +13,7 @@ from stimsymb.execution import (
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     SINGLE_QUBIT_ERRORS,
-    SINGLE_QUBIT_MEASUREMENTS,
+    SINGLE_QUBIT_MEASUREMENTS_RESETS,
     SingleQubitLocalPauliMap,
     apply_conditional_single_qubit_pauli,
     apply_single_qubit_error,
@@ -30,7 +30,7 @@ __all__ = [
     "RecordExpression",
     "SINGLE_QUBIT_ERRORS",
     "SINGLE_QUBIT_GATES",
-    "SINGLE_QUBIT_MEASUREMENTS",
+    "SINGLE_QUBIT_MEASUREMENTS_RESETS",
     "SingleQubitLocalPauliMap",
     "apply_conditional_single_qubit_pauli",
     "apply_single_qubit_error",

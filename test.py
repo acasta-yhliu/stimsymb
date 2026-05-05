@@ -1,6 +1,6 @@
 import stim
 
-from stimsymb.multi_qubit import split_mpp_targets_into_products
+from stimsymb.multi_qubit import parse_multi_pauli_targets
 
 
 def render_target(target: stim.GateTarget) -> str:
@@ -30,7 +30,7 @@ def main() -> None:
     circuit = stim.Circuit("MPP X0*Y1*Z2 X3*X4 !Z5*X6")
     instruction = list(circuit)[0]
     targets = instruction.targets_copy()
-    products = split_mpp_targets_into_products(targets)
+    products = parse_multi_pauli_targets(targets)
 
     print("Instruction:")
     print(f"  {instruction}")
@@ -38,7 +38,10 @@ def main() -> None:
     print("  flat:   " + " ".join(render_target(target) for target in targets))
     print(
         "  split:  "
-        + " | ".join(" ".join(render_target(target) for target in product) for product in products)
+        + " | ".join(
+            " ".join(render_target(target) for target in product)
+            for product in products
+        )
     )
 
     print("\nFlat Stim targets:")
@@ -47,7 +50,9 @@ def main() -> None:
 
     print("\nSplit MPP products:")
     for index, product in enumerate(products):
-        print(f"  product {index}: {' '.join(render_target(target) for target in product)}")
+        print(
+            f"  product {index}: {' '.join(render_target(target) for target in product)}"
+        )
         for target in product:
             print(f"    - {describe_target(target)}")
 

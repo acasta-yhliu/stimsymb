@@ -14,7 +14,7 @@ from stimsymb.execution import (
 )
 from stimsymb.multi_qubit import (
     MULTI_QUBIT_MEASUREMENTS,
-    apply_multi_qubit_measurement,
+    apply_pauli_product_measurement,
 )
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
@@ -42,7 +42,7 @@ __all__ = [
     "SingleQubitLocalPauliMap",
     "apply_conditional_single_qubit_pauli",
     "apply_double_qubit_measurement",
-    "apply_multi_qubit_measurement",
+    "apply_pauli_product_measurement",
     "apply_single_qubit_error",
     "SymbolicState",
     "SymbolicTableau",

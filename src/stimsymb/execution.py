@@ -16,8 +16,9 @@ from stimsymb.double_qubit import (
 )
 from stimsymb.multi_qubit import (
     MULTI_QUBIT_MEASUREMENTS,
-    apply_multi_qubit_measurement,
-    split_mpp_targets_into_products,
+    _measurement_row_from_pauli_targets,
+    apply_pauli_product_measurement,
+    parse_multi_pauli_targets,
 )
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
@@ -210,14 +211,25 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
         if instruction.name in MULTI_QUBIT_MEASUREMENTS:
             gate_args = instruction.gate_args_copy()
             for product_index, product in enumerate(
-                split_mpp_targets_into_products(instruction.targets_copy())
+                parse_multi_pauli_targets(instruction.targets_copy())
             ):
                 result_symbol = _symbol("m", len(state.measurements.recorded))
-                result = apply_multi_qubit_measurement(
+                measured_xs, measured_zs, is_inverted = (
+                    _measurement_row_from_pauli_targets(
+                        state.tableau.num_qubits,
+                        product,
+                    )
+                )
+                # Apply the tableau update before folding in Stim's optional
+                # inversion of the reported MPP result.
+                result = apply_pauli_product_measurement(
                     state.tableau,
-                    product,
+                    measured_xs,
+                    measured_zs,
                     result_symbol,
                 )
+                if is_inverted:
+                    result = Xor(result, true)
                 # Fresh nondeterministic outcomes are primitive Bernoulli bits,
                 # even when Stim inverts the reported sign of the product.
                 if result_symbol in result.free_symbols:

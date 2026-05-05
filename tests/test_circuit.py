@@ -11,7 +11,6 @@ from stimsymb.double_qubit import (
     apply_double_qubit_measurement,
 )
 from stimsymb.execution import execute, SymbolicState
-from stimsymb.multi_qubit import apply_multi_qubit_measurement
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     apply_single_qubit_measurement_maybe_reset,
@@ -814,35 +813,6 @@ def test_double_qubit_measurement_introduces_symbol_for_nondeterministic_result(
         gate_name,
         0,
         1,
-        result_symbol=Symbol("m0", boolean=True),
-    )
-
-    assert str(result) == "m0"
-
-
-def test_multi_qubit_measurement_returns_deterministic_result_without_symbol() -> None:
-    state = SymbolicState(tableau=SymbolicTableau.zero_state(3))
-    targets = list(stim.Circuit("MPP Z0*Z1*Z2"))[0].targets_copy()
-
-    result = apply_multi_qubit_measurement(
-        state.tableau,
-        targets,
-        result_symbol=false,
-    )
-
-    assert result == false
-
-
-def test_multi_qubit_measurement_introduces_symbol_for_nondeterministic_result() -> (
-    None
-):
-    state = SymbolicState(tableau=SymbolicTableau.zero_state(3))
-    execute(state, stim.Circuit("H 0"))
-    targets = list(stim.Circuit("MPP Z0*Z1*Z2"))[0].targets_copy()
-
-    result = apply_multi_qubit_measurement(
-        state.tableau,
-        targets,
         result_symbol=Symbol("m0", boolean=True),
     )
 

@@ -8,7 +8,7 @@ import stim
 from numpy.typing import NDArray
 from sympy.logic.boolalg import Boolean, Xor, true
 
-from stimsymb.multi_qubit import apply_tableau_pauli_product_measurement
+from stimsymb.multi_qubit import apply_pauli_product_measurement
 from stimsymb.tableau import SymbolicTableau
 
 _LOCAL_PAULIS = ("_", "X", "Z", "Y")
@@ -149,7 +149,7 @@ def apply_double_qubit_measurement(
     measured_zs[first_qubit] = first_z
     measured_xs[second_qubit] = second_x
     measured_zs[second_qubit] = second_z
-    return apply_tableau_pauli_product_measurement(
+    return apply_pauli_product_measurement(
         tableau,
         measured_xs,
         measured_zs,

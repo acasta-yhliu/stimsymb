@@ -15,3 +15,15 @@ Run the formatter:
 ```bash
 uv run ruff format
 ```
+
+## References
+
+- Scott Aaronson and Daniel Gottesman, "Improved simulation of stabilizer circuits",
+  Physical Review A 70, 052328 (2004).
+  DOI: https://doi.org/10.1103/PhysRevA.70.052328
+- Wenxuan Fang et al., `QuantumSE.jl`:
+  https://github.com/njuwfang/QuantumSE.jl
+- Craig Gidney, "Stim: a fast stabilizer circuit simulator" (2021).
+  arXiv: https://arxiv.org/abs/2103.02202
+
+## Citation

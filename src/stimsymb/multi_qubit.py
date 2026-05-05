@@ -11,13 +11,11 @@ MULTI_QUBIT_MEASUREMENTS = ("MPP",)
 
 __all__ = [
     "MULTI_QUBIT_MEASUREMENTS",
-    "apply_multi_qubit_measurement",
-    "apply_tableau_pauli_product_measurement",
-    "split_mpp_targets_into_products",
+    "apply_pauli_product_measurement",
 ]
 
 
-def split_mpp_targets_into_products(
+def parse_multi_pauli_targets(
     targets: list[stim.GateTarget],
 ) -> list[list[stim.GateTarget]]:
     """Split one flattened `MPP` target list into individual Pauli products."""
@@ -42,28 +40,7 @@ def split_mpp_targets_into_products(
     return products
 
 
-def apply_multi_qubit_measurement(
-    tableau: SymbolicTableau,
-    targets: list[stim.GateTarget],
-    result_symbol: Boolean,
-) -> Boolean:
-    """Measure one `MPP` Pauli product described by Stim Pauli targets."""
-    measured_xs, measured_zs, is_inverted = _measurement_row_from_pauli_targets(
-        tableau.num_qubits,
-        targets,
-    )
-    # Apply the stabilizer measurement update before folding in Stim's
-    # optional logical inversion of the reported result.
-    result = apply_tableau_pauli_product_measurement(
-        tableau,
-        measured_xs,
-        measured_zs,
-        result_symbol,
-    )
-    return Xor(result, true) if is_inverted else result
-
-
-def apply_tableau_pauli_product_measurement(
+def apply_pauli_product_measurement(
     tableau: SymbolicTableau,
     measured_xs: NDArray[np.uint8],
     measured_zs: NDArray[np.uint8],

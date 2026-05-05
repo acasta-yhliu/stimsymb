@@ -27,3 +27,15 @@ uv run ruff format
   arXiv: https://arxiv.org/abs/2103.02202
 
 ## Citation
+
+If you use `stimsymb`, cite it as:
+
+```bibtex
+@software{liu2026stimsymb,
+  author = {Yuhao Liu},
+  title = {StimSymb: Symbolic Execution Engine for Stim},
+  url = {https://github.com/acasta-yhliu/stimsymb},
+  version = {0.1.0},
+  year = {2026}
+}
+```

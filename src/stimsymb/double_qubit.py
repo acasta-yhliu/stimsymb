@@ -6,8 +6,9 @@ from functools import cache
 import numpy as np
 import stim
 from numpy.typing import NDArray
-from sympy.logic.boolalg import Boolean, Xor, false, true
+from sympy.logic.boolalg import Boolean, Xor, true
 
+from stimsymb.multi_qubit import apply_tableau_pauli_product_measurement
 from stimsymb.tableau import SymbolicTableau
 
 _LOCAL_PAULIS = ("_", "X", "Z", "Y")
@@ -148,102 +149,9 @@ def apply_double_qubit_measurement(
     measured_zs[first_qubit] = first_z
     measured_xs[second_qubit] = second_x
     measured_zs[second_qubit] = second_z
-    return _apply_pauli_product_measurement(
+    return apply_tableau_pauli_product_measurement(
         tableau,
         measured_xs,
         measured_zs,
         result_symbol,
     )
-
-
-def _apply_pauli_product_measurement(
-    tableau: SymbolicTableau,
-    measured_xs: NDArray[np.uint8],
-    measured_zs: NDArray[np.uint8],
-    result_symbol: Boolean,
-) -> Boolean:
-    """Apply a Pauli-product measurement update to a tableau."""
-    # Symplectic product 1 means a tableau row anticommutes with the measured
-    # Pauli product. Random measurements are exactly the cases with such a
-    # stabilizer pivot.
-    products = (tableau.xs @ measured_zs + tableau.zs @ measured_xs) % 2
-    pivot = next(
-        (
-            row
-            for row in range(tableau.num_qubits, 2 * tableau.num_qubits)
-            if products[row]
-        ),
-        None,
-    )
-    if pivot is None:
-        return _deterministic_measurement_result(tableau, products)
-
-    return _nondeterministic_measurement_result(
-        tableau,
-        measured_xs,
-        measured_zs,
-        products,
-        pivot,
-        result_symbol,
-    )
-
-
-def _deterministic_measurement_result(
-    tableau: SymbolicTableau,
-    products: NDArray[np.uint8],
-) -> Boolean:
-    """Return the phase of a Pauli product already in the stabilizer group."""
-    xs = np.zeros(tableau.num_qubits, dtype=np.uint8)
-    zs = np.zeros(tableau.num_qubits, dtype=np.uint8)
-    phase: Boolean = false
-
-    # Destabilizers identify which stabilizer generators multiply to the
-    # measured operator: if D_i anticommutes with M, include S_i.
-    for row in range(tableau.num_qubits):
-        if not products[row]:
-            continue
-        stabilizer = tableau.num_qubits + row
-        # Multiplying Hermitian Pauli rows XORs support and may add a -1 sign
-        # depending on the local Pauli multiplication order.
-        zx = int(zs @ tableau.xs[stabilizer])
-        xz = int(xs @ tableau.zs[stabilizer])
-        xs ^= tableau.xs[stabilizer]
-        zs ^= tableau.zs[stabilizer]
-        phase = Xor(
-            phase,
-            tableau.phases[stabilizer],
-            true if (zx - xz) % 4 == 2 else false,
-        )
-    return phase
-
-
-def _nondeterministic_measurement_result(
-    tableau: SymbolicTableau,
-    measured_xs: NDArray[np.uint8],
-    measured_zs: NDArray[np.uint8],
-    products: NDArray[np.uint8],
-    pivot: int,
-    result_symbol: Boolean,
-) -> Boolean:
-    """Insert a fresh Pauli-product stabilizer with symbolic phase."""
-    result = result_symbol
-    destabilizer = pivot - tableau.num_qubits
-
-    # Clear anticommutation from every non-pivot row by multiplying with the
-    # pivot stabilizer. After this, the measured Pauli can replace the pivot.
-    for row in range(2 * tableau.num_qubits):
-        if row not in {pivot, destabilizer} and products[row]:
-            tableau.multiply_row(row, pivot)
-
-    # Preserve canonical destabilizer/stabilizer pairing by moving the old
-    # pivot stabilizer into its paired destabilizer slot.
-    tableau.xs[destabilizer] = tableau.xs[pivot].copy()
-    tableau.zs[destabilizer] = tableau.zs[pivot].copy()
-    tableau.phases[destabilizer] = tableau.phases[pivot]
-
-    # The measured Pauli product becomes the new stabilizer with the symbolic
-    # measurement result as its phase.
-    tableau.xs[pivot] = measured_xs
-    tableau.zs[pivot] = measured_zs
-    tableau.phases[pivot] = result
-    return result

@@ -14,6 +14,11 @@ from stimsymb.double_qubit import (
     apply_double_qubit_measurement,
     apply_double_qubit_gate,
 )
+from stimsymb.multi_qubit import (
+    MULTI_QUBIT_MEASUREMENTS,
+    apply_multi_qubit_measurement,
+    split_mpp_targets_into_products,
+)
 from stimsymb.single_qubit import (
     SINGLE_QUBIT_GATES,
     SINGLE_QUBIT_ERRORS,
@@ -147,8 +152,8 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
                 # Fresh nondeterministic measurement outcomes inherit the
                 # default Bernoulli distribution before any report noise is
                 # applied to the visible bit.
-                if result == result_symbol and result not in {false, true}:
-                    state.measurements.distribution[result] = 0.5
+                if result_symbol in result.free_symbols:
+                    state.measurements.distribution[result_symbol] = 0.5
                 # Stim's measurement noise flips only the reported bit. For
                 # demolition measurements, the reset still uses the true
                 # outcome already consumed by the tableau helper.
@@ -188,14 +193,40 @@ def execute(state: SymbolicState, circuit: stim.Circuit) -> None:
                     result_symbol,
                 )
                 # Fresh nondeterministic outcomes are primitive Bernoulli bits.
-                if result == result_symbol and result not in {false, true}:
-                    state.measurements.distribution[result] = 0.5
+                if result_symbol in result.free_symbols:
+                    state.measurements.distribution[result_symbol] = 0.5
                 # Stim's measurement noise flips only the reported bit.
                 if gate_args:
                     result = _apply_measurement_noise(
                         state,
                         instruction_id,
                         pair_index,
+                        result,
+                        gate_args[0],
+                    )
+                state.measurements.recorded.append(result)
+            continue
+
+        if instruction.name in MULTI_QUBIT_MEASUREMENTS:
+            gate_args = instruction.gate_args_copy()
+            for product_index, product in enumerate(
+                split_mpp_targets_into_products(instruction.targets_copy())
+            ):
+                result_symbol = _symbol("m", len(state.measurements.recorded))
+                result = apply_multi_qubit_measurement(
+                    state.tableau,
+                    product,
+                    result_symbol,
+                )
+                # Fresh nondeterministic outcomes are primitive Bernoulli bits,
+                # even when Stim inverts the reported sign of the product.
+                if result_symbol in result.free_symbols:
+                    state.measurements.distribution[result_symbol] = 0.5
+                if gate_args:
+                    result = _apply_measurement_noise(
+                        state,
+                        instruction_id,
+                        product_index,
                         result,
                         gate_args[0],
                     )

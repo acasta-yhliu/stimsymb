@@ -108,9 +108,6 @@ through their local Pauli maps.
 - SPP
 - SPP_DAG
 
-### Measurements
-
-
 ### Noise And Errors
 
 - DEPOLARIZE2
